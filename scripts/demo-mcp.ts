@@ -23,22 +23,24 @@ function log(prefix: string, msg: string) {
   console.log(`${C.yellow}${prefix}${C.reset} ${msg}`)
 }
 
-/** Call an MCP tool on a given agent. Returns the text response. */
+function makeEnv(nick: string) {
+  return {
+    ...process.env,
+    IRC_NICK: nick,
+    IRC_USERNAME: nick,
+    IRC_PASSWORD: `${nick}-irc-2024!`,
+    IRC_HOST: '127.0.0.1',
+    IRC_PORT: '6667',
+    IRC_CHANNELS: '#general,#gate',
+    IRC_TLS: 'false',
+    IRC_GATE_CHANNEL: '#gate',
+  }
+}
+
+/** Call a single MCP tool on a given agent. Returns the text response. */
 async function mcpCall(nick: string, tool: string, args: object): Promise<string> {
   return new Promise((resolve) => {
-    const env = {
-      ...process.env,
-      IRC_NICK: nick,
-      IRC_USERNAME: nick,
-      IRC_PASSWORD: `${nick}-irc-2024!`,
-      IRC_HOST: '127.0.0.1',
-      IRC_PORT: '6667',
-      IRC_CHANNELS: '#general,#gate',
-      IRC_TLS: 'false',
-      IRC_GATE_CHANNEL: '#gate',
-    }
-
-    const proc = spawn('bun', ['run', SERVER], { env, stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = spawn('bun', ['run', SERVER], { env: makeEnv(nick), stdio: ['pipe', 'pipe', 'pipe'] })
 
     const responses: any[] = []
     let buf = ''
@@ -74,6 +76,51 @@ async function mcpCall(nick: string, tool: string, args: object): Promise<string
       proc.stdin.write(call + '\n')
 
       setTimeout(() => proc.kill('SIGTERM'), 3000)
+    }, 3500)
+  })
+}
+
+/** Call multiple MCP tools in sequence on a given agent. Returns array of text responses (one per tool). */
+async function mcpCallSeq(nick: string, calls: Array<{ tool: string; args: object }>): Promise<string[]> {
+  return new Promise((resolve) => {
+    const proc = spawn('bun', ['run', SERVER], { env: makeEnv(nick), stdio: ['pipe', 'pipe', 'pipe'] })
+
+    const responses: any[] = []
+    let buf = ''
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buf += chunk.toString()
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try { responses.push(JSON.parse(line)) } catch {}
+      }
+    })
+
+    proc.on('close', () => {
+      const results = calls.map((_, i) => {
+        const r = responses.find((r) => r.id === i + 2)
+        return r?.result?.content?.[0]?.text ?? r?.error?.message ?? '(no response)'
+      })
+      resolve(results)
+    })
+
+    setTimeout(() => {
+      const init = JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'demo', version: '1.0' } },
+      })
+      proc.stdin.write(init + '\n')
+      for (let i = 0; i < calls.length; i++) {
+        const call = JSON.stringify({
+          jsonrpc: '2.0', id: i + 2, method: 'tools/call',
+          params: { name: calls[i].tool, arguments: calls[i].args },
+        })
+        proc.stdin.write(call + '\n')
+      }
+      // Wait extra time for sequential tool calls to complete
+      setTimeout(() => proc.kill('SIGTERM'), 4000 + calls.length * 1000)
     }, 3500)
   })
 }
@@ -143,7 +190,7 @@ console.log(`  ${C.green}✓${C.reset} ${channelsResult}`)
 await sleep(500)
 
 console.log('')
-log('[forge → join]', 'Joining a new per-project channel...')
+log('[forge → join]', 'Joining a per-project channel...')
 const joinResult = await mcpCall('forge', 'join', { channel: '#irc-research' })
 console.log(`  ${C.green}✓${C.reset} ${joinResult}`)
 await sleep(500)
@@ -160,4 +207,5 @@ console.log('In production with Claude Code:')
 console.log('  HIGH priority (mentions, DMs, #gate) → Claude acts on them immediately')
 console.log('  NORMAL (other channels) → throttled summaries, Claude reads when convenient')
 console.log('  fetch_history → Claude catches up on missed messages')
+console.log('  join/part → dynamic channel subscription per task')
 console.log('')
