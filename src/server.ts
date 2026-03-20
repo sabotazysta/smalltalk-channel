@@ -68,6 +68,9 @@ if (missing.length > 0) {
 
 const client = new IRC.Client()
 
+// Request IRCv3 capabilities needed for CHATHISTORY and batched responses
+client.requestCap(['batch', 'draft/chathistory', 'server-time', 'message-tags'])
+
 // Track joined channels so we only forward messages from channels we're in
 const joinedChannels = new Set<string>()
 
@@ -167,12 +170,23 @@ client.on('batch end chathistory', (event: { id: string; type: string; params: s
   pending.resolve(pending.messages)
 })
 
+// Safely extract ISO timestamp from an IRC event's time field.
+// irc-framework may return a Date, a string, or null depending on the context
+// (e.g. CHATHISTORY batch events pass the raw @time tag as a string).
+function getEventTs(time: Date | string | null | undefined): string {
+  if (!time) return new Date().toISOString()
+  if (time instanceof Date) return time.toISOString()
+  // Already an ISO string from @time tag
+  if (typeof time === 'string') return time
+  return new Date().toISOString()
+}
+
 // Handle inbound channel messages (also catches batched CHATHISTORY privmsgs)
 client.on('privmsg', (event: {
   target: string
   nick: string
   message: string
-  time: Date | null
+  time: Date | string | null
   batch?: { id: string; type: string; params: string[] }
 }) => {
   const channel = event.target
@@ -183,7 +197,7 @@ client.on('privmsg', (event: {
     if (batchChannel) {
       const pending = pendingHistory.get(batchChannel)
       if (pending) {
-        const ts = event.time ? event.time.toISOString() : new Date().toISOString()
+        const ts = getEventTs(event.time)
         pending.messages.push({ ts, nick: event.nick, text: event.message })
       }
       return
@@ -197,7 +211,7 @@ client.on('privmsg', (event: {
   // Only forward from channels we've joined
   if (!joinedChannels.has(channel.toLowerCase())) return
 
-  const ts = event.time ? event.time.toISOString() : new Date().toISOString()
+  const ts = getEventTs(event.time)
 
   void mcp.notification({
     method: 'notifications/claude/channel',

@@ -17,7 +17,8 @@ server:
 
   listeners:
     # Plaintext — internal Docker network only (no tls key = plaintext)
-    "127.0.0.1:6667": {}
+    # Use 0.0.0.0 so Docker port mapping can reach it from the host
+    "0.0.0.0:6667": {}
 
     # TLS — agents and external clients
     "0.0.0.0:6697":
@@ -92,8 +93,11 @@ accounts:
   require-sasl:
     enabled: true
     # Exemptions for local plaintext connections (agents on same Docker network)
+    # 127.0.0.1 = connections from within the container itself
+    # 172.16.0.0/12 = Docker bridge network (host connections via port mapping)
     exempted:
       - "127.0.0.1"
+      - "172.16.0.0/12"
 
   authentication-enabled: true
 
@@ -117,14 +121,15 @@ accounts:
     enabled: false
 
 channels:
-  # Operators create channels; no auto-join
+  # Default modes for new channels
   default-modes: "+nt"
   # Max channels a user can be in
   max-channels-per-client: 50
-  operator-only-creation: true
+  # Allow authenticated users to create channels
+  operator-only-creation: false
   registration:
     enabled: true
-    operator-only-registration: true
+    operator-only-registration: false
 
 limits:
   nicklen: 32
@@ -191,10 +196,9 @@ opers:
 oper-classes:
   "server-admins":
     title: Server Admin
-    flags:
-      - "local_kill"
-      - "local_ban"
-      - "local_unban"
+    capabilities:
+      - "kill"
+      - "ban"
       - "nofakelag"
       - "relaymsg"
       - "vhosts"
@@ -208,7 +212,6 @@ oper-classes:
       - "defcon"
       - "massmessage"
       - "rehash"
-      - "die"
 
 debug:
   recover-from-errors: true
