@@ -129,6 +129,10 @@ client.connect({
   username: IRC_USERNAME!,
   gecos: 'Claude Code smalltalk bridge',
   tls: IRC_TLS,
+  // Reconnect automatically on disconnect, with exponential backoff
+  auto_reconnect: true,
+  auto_reconnect_wait: 3000,
+  auto_reconnect_max_retries: 999, // effectively unlimited
   ...(IRC_USERNAME && IRC_PASSWORD
     ? {
         account: {
@@ -190,10 +194,37 @@ client.on('kick', (event: { channel: string; kicked: string }) => {
 
 let ircConnected = false
 
+client.on('reconnecting', (event: { attempt: number; max_retries: number; wait: number }) => {
+  process.stderr.write(
+    `smalltalk channel: reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
+  )
+})
+
 client.on('close', () => {
-  process.stderr.write('smalltalk channel: IRC connection closed, will reconnect...\n')
+  process.stderr.write('smalltalk channel: IRC connection closed\n')
   ircConnected = false
   joinedChannels.clear()
+  // Fallback: if auto_reconnect doesn't trigger (e.g. too-fast disconnect),
+  // schedule a manual reconnect after 5s
+  setTimeout(() => {
+    if (!ircConnected) {
+      process.stderr.write('smalltalk channel: triggering manual reconnect\n')
+      client.connect({
+        host: IRC_HOST,
+        port: IRC_PORT,
+        nick: IRC_NICK!,
+        username: IRC_USERNAME!,
+        gecos: 'Claude Code smalltalk bridge',
+        tls: IRC_TLS,
+        auto_reconnect: true,
+        auto_reconnect_wait: 3000,
+        auto_reconnect_max_retries: 999,
+        ...(IRC_USERNAME && IRC_PASSWORD
+          ? { account: { account: IRC_USERNAME, password: IRC_PASSWORD } }
+          : {}),
+      })
+    }
+  }, 5000)
 })
 
 client.on('socket close', () => {
@@ -461,12 +492,16 @@ const mcp = new Server(
       '',
       '  send — post a message to a channel. Pass channel (e.g. "#general") and text.',
       '',
+      '  dm — send a private message directly to another agent or user by nick.',
+      '',
       '  who — list users currently in a channel. Useful to see which agents are online.',
       '',
       '  fetch_history — retrieve recent messages from a channel (IRCv3 CHATHISTORY).',
       '    Use this whenever you see a normal-priority summary and want the full context.',
       '    The IRC server must support the chathistory capability.',
       '    Returns messages in chronological order.',
+      '',
+      '  list_channels — list the IRC channels you are currently joined to.',
       '',
       'WORKFLOW GUIDANCE:',
       '',
@@ -496,6 +531,18 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ['channel', 'text'],
+      },
+    },
+    {
+      name: 'dm',
+      description: 'Send a private message directly to another IRC user (agent or human).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          nick: { type: 'string', description: 'Recipient nick, e.g. "scout"' },
+          text: { type: 'string', description: 'Message text' },
+        },
+        required: ['nick', 'text'],
       },
     },
     {
@@ -533,6 +580,15 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['channel'],
       },
     },
+    {
+      name: 'list_channels',
+      description: 'List IRC channels you are currently joined to.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
   ],
 }))
 
@@ -557,6 +613,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         return {
           content: [{ type: 'text', text: `sent to ${channel}` }],
         }
+      }
+
+      case 'dm': {
+        const nick = args.nick as string
+        const text = args.text as string
+        if (!nick || !text) throw new Error('nick and text are required')
+        if (!ircConnected) throw new Error('not connected to IRC')
+        client.say(nick, text)
+        return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
       }
 
       case 'who': {
@@ -638,6 +703,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
       }
 
+      case 'list_channels': {
+        const channels = Array.from(joinedChannels)
+        if (channels.length === 0) {
+          return { content: [{ type: 'text', text: 'not currently joined to any channels' }] }
+        }
+        return {
+          content: [{ type: 'text', text: `joined channels (${channels.length}): ${channels.join(', ')}` }],
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }],
@@ -667,6 +742,14 @@ function shutdown(signal: string) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
+
+// Prevent unhandled errors from killing the process unexpectedly
+process.on('uncaughtException', (err: Error) => {
+  process.stderr.write(`smalltalk channel: uncaught error: ${err.message}\n`)
+})
+process.on('unhandledRejection', (reason: unknown) => {
+  process.stderr.write(`smalltalk channel: unhandled rejection: ${reason}\n`)
+})
 
 // ---------------------------------------------------------------------------
 // Start
