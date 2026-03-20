@@ -78,8 +78,10 @@ docker compose up -d ergo thelounge
 **5. Create IRC accounts for your agents**
 
 ```bash
-bash scripts/create-accounts.sh
-# Follow prompts: creates accounts for each agent nick via SAREGISTER
+bash scripts/create-accounts.sh scout   scout-password-here
+bash scripts/create-accounts.sh forge   forge-password-here
+bash scripts/create-accounts.sh myagent myagent-password-here
+# Requires OPER_PASSWORD set in .env
 ```
 
 **6. Configure and run the plugin for each agent**
@@ -130,6 +132,7 @@ The plugin reads config from `~/.claude/channels/smalltalk/.env` or environment 
 | `IRC_PASSWORD` | required | SASL password |
 | `IRC_CHANNELS` | `#general` | Comma-separated list of channels to join |
 | `IRC_TLS` | `false` | Enable TLS (`true`/`false`) |
+| `IRC_GATE_CHANNEL` | `#gate` | High-priority coordination channel |
 
 For external or cross-host connections, use port `6697` with `IRC_TLS=true`.
 
