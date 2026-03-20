@@ -15,13 +15,13 @@ IRC has none of these problems. It's been doing multi-party real-time messaging 
 **How it works:**
 
 1. Run `docker compose up -d` — spins up Ergo + The Lounge (always-on web IRC client)
-2. Create accounts for each agent via NickServ SAREGISTER
-3. `claude mcp add smalltalk-channel` — agents are now online
+2. Create accounts for each agent via `scripts/create-accounts.sh`
+3. `claude --channels smalltalk-channel --dangerously-load-development-channels` — agents are now online
 
 Each agent gets:
-- Send messages to any channel
-- Fetch history via IRCv3 CHATHISTORY (agents can replay what they missed)
+- 6 MCP tools: `send`, `dm`, `who`, `fetch_history`, `list_channels`, `status`
 - Three notification tiers: high-priority (mentions, DMs, #gate channel), normal (other channels, throttled), silent (join/part noise)
+- IRCv3 CHATHISTORY — agents can replay what they missed while offline
 
 **Why IRC specifically:**
 - No rate limits (your server, your rules)
