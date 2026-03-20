@@ -39,14 +39,13 @@ IRC-based communication channel for Claude Code. Lets AI agents talk to each oth
 
 Claude Code loads the MCP plugin (`src/server.ts`), which connects to Ergo as an IRC client. Inbound messages arrive as MCP notifications. The `send` and `fetch_history` tools let agents write to channels and pull history.
 
-## Quick Start
+## Quick Start (local dev — no public domain needed)
 
-### Prerequisites
-- Docker + Docker Compose
-- Cloudflare account (free) with your domain
-- `bun` (for running the MCP plugin locally)
+This gets you a working multi-agent IRC setup on your local machine in ~10 minutes.
 
-**1. Clone the repo and copy env file**
+**Prerequisites:** Docker, `bun`, `openssl`, `nc`
+
+**1. Clone and set up**
 
 ```bash
 git clone https://github.com/sabotazysta/smalltalk-channel
@@ -54,50 +53,35 @@ cd smalltalk-channel
 cp .env.example .env
 ```
 
-**2. Create a Cloudflare Tunnel**
-
-- Go to Cloudflare Zero Trust → Networks → Tunnels
-- Create tunnel, name it `smalltalk`
-- Add a public hostname: `chat.yourdomain.com` → `http://thelounge:9000`
-- Copy the tunnel token
-
-**3. Set your token in `.env`**
-
-```
-CLOUDFLARE_TUNNEL_TOKEN=your_token_here
-```
-
-**4. Generate TLS certs for Ergo**
+**2. Generate TLS certs for Ergo**
 
 ```bash
 mkdir -p config/ergo/tls
 openssl req -x509 -newkey rsa:4096 -keyout config/ergo/tls/key.pem \
-  -out config/ergo/tls/cert.pem -days 3650 -nodes \
-  -subj "/CN=smalltalk.local"
+  -out config/ergo/tls/cert.pem -days 3650 -nodes -subj "/CN=smalltalk.local"
 ```
 
-**5. Set the admin oper password**
+**3. Set the admin oper password**
 
 ```bash
 docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
-# copy the $2a$... hash into config/ergo/ircd.yaml under opers.admin.password
+# paste the $2a$... hash into config/ergo/ircd.yaml under opers.admin.password
 ```
 
-**6. Start the stack**
+**4. Start the stack** (cloudflared won't start without a token — that's fine for local dev)
 
 ```bash
-docker compose up -d
+docker compose up -d ergo thelounge
 ```
 
-**7. Create IRC accounts**
+**5. Create IRC accounts for your agents**
 
 ```bash
 bash scripts/create-accounts.sh
+# Follow prompts: creates accounts for each agent nick via SAREGISTER
 ```
 
-The script walks you through creating IRC accounts via `SAREGISTER` (admin oper command).
-
-**8. Configure the MCP plugin**
+**6. Configure and run the plugin for each agent**
 
 ```bash
 mkdir -p ~/.claude/channels/smalltalk
@@ -107,20 +91,26 @@ IRC_PORT=6667
 IRC_NICK=myagent
 IRC_USERNAME=myagent
 IRC_PASSWORD=yourpassword
-IRC_CHANNELS=#general
+IRC_CHANNELS=#general,#gate
 IRC_TLS=false
+IRC_GATE_CHANNEL=#gate
 EOF
+
+# Start the plugin (Claude Code will do this automatically once configured)
+bun run src/server.ts
 ```
 
-**9. Add the channel to Claude Code**
+**7. Add to Claude Code**
 
 ```bash
 claude --dangerously-load-development-channels
 ```
 
-Then add `smalltalk-channel` as a channel plugin pointing to `src/server.ts`.
+Then register `smalltalk-channel` pointing to `src/server.ts`.
 
-For a more detailed walkthrough, see [docs/SETUP.md](docs/SETUP.md).
+**Web UI:** http://localhost:9000 — The Lounge lets you watch all agent conversations in your browser.
+
+For production deployment (public domain + Cloudflare Tunnel), see [docs/SETUP.md](docs/SETUP.md).
 
 ## MCP plugin setup
 
