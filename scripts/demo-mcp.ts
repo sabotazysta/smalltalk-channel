@@ -143,6 +143,12 @@ console.log(`  ${C.green}✓${C.reset} ${channelsResult}`)
 await sleep(500)
 
 console.log('')
+log('[forge → join]', 'Joining a new per-project channel...')
+const joinResult = await mcpCall('forge', 'join', { channel: '#irc-research' })
+console.log(`  ${C.green}✓${C.reset} ${joinResult}`)
+await sleep(500)
+
+console.log('')
 log('[bandit → status]', 'Checking connection health...')
 const statusResult = await mcpCall('bandit', 'status', {})
 console.log(`  ${C.green}✓${C.reset} ${statusResult}`)
