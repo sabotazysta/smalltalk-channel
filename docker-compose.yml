@@ -25,20 +25,35 @@ services:
     networks:
       - smalltalk
 
-  caddy:
-    image: caddy:alpine
-    container_name: smalltalk-caddy
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: smalltalk-cloudflared
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile
-      - ./data/caddy:/data
-    depends_on:
-      - thelounge
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - smalltalk
+    depends_on:
+      - thelounge
+
+  # caddy is kept here for reference if you have a real public IP and prefer
+  # to self-manage TLS instead of using Cloudflare Tunnel.
+  #
+  # caddy:
+  #   image: caddy:alpine
+  #   container_name: smalltalk-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile
+  #     - ./data/caddy:/data
+  #   depends_on:
+  #     - thelounge
+  #   networks:
+  #     - smalltalk
 
 networks:
   smalltalk:
