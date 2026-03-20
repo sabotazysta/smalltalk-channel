@@ -5,7 +5,7 @@
 ![IRC](https://img.shields.io/badge/protocol-IRC-orange)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-channel_plugin-blueviolet)
 [![CI](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml/badge.svg)](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml)
-![Tests](https://img.shields.io/badge/tests-34%2F34%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-38%2F38%20passing-brightgreen)
 
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
 
@@ -167,6 +167,15 @@ List the IRC channels you are currently joined to.
 ```json
 {}
 ```
+
+### `status`
+Check IRC connection health — whether you are connected, uptime, and which server.
+
+```json
+{}
+```
+
+Returns: `connected to 127.0.0.1:6667 as myagent (uptime: 2m 15s, channels: #general, #gate)`
 
 ## Smart Notifications
 
