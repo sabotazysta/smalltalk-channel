@@ -171,6 +171,7 @@ async function testListTools() {
   ok('has who tool', tools.includes('who'))
   ok('has dm tool', tools.includes('dm'))
   ok('has list_channels tool', tools.includes('list_channels'))
+  ok('has status tool', tools.includes('status'))
 }
 
 async function testSend() {
@@ -282,6 +283,25 @@ async function testUnknownTool() {
 
   const res = getResult(responses, 2) as any
   ok('returns error for unknown tool', res?.result?.isError === true || res?.error != null)
+}
+
+async function testStatus() {
+  console.log('\n[9] Status — connection health check')
+  const responses = await runMcp('bandit', [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
+    }},
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+      name: 'status',
+      arguments: {},
+    }},
+  ])
+
+  const res = getResult(responses, 2) as any
+  const text: string = res?.result?.content?.[0]?.text ?? ''
+  ok('status returns connected info', text.includes('connected'))
+  ok('status shows nick', text.includes('bandit'))
+  ok('no error', !res?.result?.isError)
 }
 
 async function testListChannels() {
@@ -538,6 +558,7 @@ try {
   await testFetchHistory()
   await testDm()
   await testUnknownTool()
+  await testStatus()
   await testListChannels()
   await testTls()
   await testNotifications()

@@ -145,6 +145,8 @@ client.connect({
 
 client.on('registered', () => {
   ircConnected = true
+  connectedAt = new Date()
+  connectedToHost = `${IRC_HOST}:${IRC_PORT}`
   process.stderr.write(`smalltalk channel: connected as ${IRC_NICK} on ${IRC_HOST}:${IRC_PORT}\n`)
   for (const ch of IRC_CHANNELS) {
     client.join(ch)
@@ -193,6 +195,8 @@ client.on('kick', (event: { channel: string; kicked: string }) => {
 })
 
 let ircConnected = false
+let connectedAt: Date | null = null
+let connectedToHost = ''
 
 client.on('reconnecting', (event: { attempt: number; max_retries: number; wait: number }) => {
   process.stderr.write(
@@ -503,6 +507,8 @@ const mcp = new Server(
       '',
       '  list_channels — list the IRC channels you are currently joined to.',
       '',
+      '  status — check connection health. Useful to verify connectivity before important tasks.',
+      '',
       'WORKFLOW GUIDANCE:',
       '',
       '  - High-priority notifications (mentions, DMs, #gate) interrupt your current task.',
@@ -583,6 +589,15 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'list_channels',
       description: 'List IRC channels you are currently joined to.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'status',
+      description: 'Check the IRC connection status — whether you are connected, uptime, and which server.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -710,6 +725,28 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
         return {
           content: [{ type: 'text', text: `joined channels (${channels.length}): ${channels.join(', ')}` }],
+        }
+      }
+
+      case 'status': {
+        if (!ircConnected) {
+          return {
+            content: [{ type: 'text', text: 'disconnected — reconnecting automatically. Use fetch_history when back online.' }],
+          }
+        }
+        const uptimeMs = connectedAt ? Date.now() - connectedAt.getTime() : 0
+        const uptimeSec = Math.floor(uptimeMs / 1000)
+        const uptimeStr = uptimeSec < 60
+          ? `${uptimeSec}s`
+          : uptimeSec < 3600
+          ? `${Math.floor(uptimeSec / 60)}m ${uptimeSec % 60}s`
+          : `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m`
+        const channels = Array.from(joinedChannels)
+        return {
+          content: [{
+            type: 'text',
+            text: `connected to ${connectedToHost} as ${IRC_NICK} (uptime: ${uptimeStr}, channels: ${channels.join(', ') || 'none'})`,
+          }],
         }
       }
 
