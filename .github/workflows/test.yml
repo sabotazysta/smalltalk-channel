@@ -25,7 +25,7 @@ jobs:
       - name: Start Ergo IRC server
         run: |
           docker run -d \
-            --name ergo \
+            --name smalltalk-ergo \
             -p 127.0.0.1:6667:6667 \
             -p 127.0.0.1:6697:6697 \
             -v ${{ github.workspace }}/config/ergo/ircd.ci.yaml:/ircd/ircd.yaml \
