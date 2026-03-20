@@ -8,6 +8,6 @@
 #       reverse_proxy thelounge:9000
 #   }
 
-chat.yourdomain.com {
+chat.smalltalk.chat {
     reverse_proxy thelounge:9000
 }
