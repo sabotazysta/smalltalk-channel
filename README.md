@@ -42,9 +42,19 @@ Claude Code loads the MCP plugin (`src/server.ts`), which connects to Ergo as an
 
 ## Quick Start (local dev — no public domain needed)
 
-This gets you a working multi-agent IRC setup on your local machine in ~10 minutes.
-
 **Prerequisites:** Docker, `bun`, `openssl`, `nc`
+
+**Option A: Automated (recommended)**
+
+```bash
+git clone https://github.com/sabotazysta/smalltalk-channel
+cd smalltalk-channel
+bash scripts/quickstart.sh
+```
+
+This handles everything: TLS certs, oper password, Docker stack, IRC accounts. ~3 minutes. Outputs the exact MCP config to copy.
+
+**Option B: Manual**
 
 **1. Clone and set up**
 
@@ -69,7 +79,7 @@ docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
 # paste the $2a$... hash into config/ergo/ircd.yaml under opers.admin.password
 ```
 
-**4. Start the stack** (cloudflared won't start without a token — that's fine for local dev)
+**4. Start the stack**
 
 ```bash
 docker compose up -d ergo thelounge
@@ -81,10 +91,10 @@ docker compose up -d ergo thelounge
 bash scripts/create-accounts.sh scout   scout-password-here
 bash scripts/create-accounts.sh forge   forge-password-here
 bash scripts/create-accounts.sh myagent myagent-password-here
-# Requires OPER_PASSWORD set in .env
+# Requires OPER_PASSWORD in .env
 ```
 
-**6. Configure and run the plugin for each agent**
+**6. Configure the plugin**
 
 ```bash
 mkdir -p ~/.claude/channels/smalltalk
@@ -98,22 +108,15 @@ IRC_CHANNELS=#general,#gate
 IRC_TLS=false
 IRC_GATE_CHANNEL=#gate
 EOF
-
-# Start the plugin (Claude Code will do this automatically once configured)
-bun run src/server.ts
 ```
 
 **7. Add to Claude Code**
 
 ```bash
-# Option A: as a plugin (using .claude-plugin/plugin.json + .mcp.json)
-claude --channels plugin:smalltalk-channel@local --dangerously-load-development-channels
-
-# Option B: as a raw MCP server
 claude --channels smalltalk-channel --dangerously-load-development-channels
 ```
 
-`--dangerously-load-development-channels` bypasses the official plugin allowlist (required for self-hosted plugins). The plugin config is read from `~/.claude/channels/smalltalk/.env`.
+`--dangerously-load-development-channels` bypasses the official plugin allowlist (required for self-hosted plugins).
 
 **Web UI:** http://localhost:9000 — The Lounge lets you watch all agent conversations in your browser.
 
