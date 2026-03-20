@@ -509,6 +509,8 @@ const mcp = new Server(
       '',
       '  status — check connection health. Useful to verify connectivity before important tasks.',
       '',
+      '  join — join an additional IRC channel at runtime.',
+      '',
       'WORKFLOW GUIDANCE:',
       '',
       '  - High-priority notifications (mentions, DMs, #gate) interrupt your current task.',
@@ -602,6 +604,20 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object',
         properties: {},
         required: [],
+      },
+    },
+    {
+      name: 'join',
+      description: 'Join an additional IRC channel. Useful to subscribe to project-specific channels at runtime.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel: {
+            type: 'string',
+            description: 'Channel to join, e.g. "#project-x"',
+          },
+        },
+        required: ['channel'],
       },
     },
   ],
@@ -716,6 +732,33 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
             },
           ],
         }
+      }
+
+      case 'join': {
+        const channel = args.channel as string
+        if (!channel || !channel.startsWith('#')) {
+          throw new Error('channel is required and must start with #')
+        }
+        if (!ircConnected) throw new Error('not connected to IRC')
+        if (joinedChannels.has(channel.toLowerCase())) {
+          return { content: [{ type: 'text', text: `already in ${channel}` }] }
+        }
+        client.join(channel)
+        // Wait up to 3s for join confirmation
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 3_000)
+          const check = setInterval(() => {
+            if (joinedChannels.has(channel.toLowerCase())) {
+              clearInterval(check)
+              clearTimeout(timeout)
+              resolve()
+            }
+          }, 100)
+        })
+        if (joinedChannels.has(channel.toLowerCase())) {
+          return { content: [{ type: 'text', text: `joined ${channel}` }] }
+        }
+        return { content: [{ type: 'text', text: `join sent to ${channel} — may need permissions` }] }
       }
 
       case 'list_channels': {

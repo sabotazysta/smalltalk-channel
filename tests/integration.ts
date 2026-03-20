@@ -172,6 +172,7 @@ async function testListTools() {
   ok('has dm tool', tools.includes('dm'))
   ok('has list_channels tool', tools.includes('list_channels'))
   ok('has status tool', tools.includes('status'))
+  ok('has join tool', tools.includes('join'))
 }
 
 async function testSend() {
@@ -283,6 +284,24 @@ async function testUnknownTool() {
 
   const res = getResult(responses, 2) as any
   ok('returns error for unknown tool', res?.result?.isError === true || res?.error != null)
+}
+
+async function testJoin() {
+  console.log('\n[9] Join — dynamically join a new channel')
+  const responses = await runMcp('bandit', [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
+    }},
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+      name: 'join',
+      arguments: { channel: '#test-dynamic' },
+    }},
+  ])
+
+  const res = getResult(responses, 2) as any
+  const text: string = res?.result?.content?.[0]?.text ?? ''
+  ok('join succeeds or already in channel', text.includes('joined') || text.includes('already in'))
+  ok('no error', !res?.result?.isError)
 }
 
 async function testStatus() {
@@ -558,6 +577,7 @@ try {
   await testFetchHistory()
   await testDm()
   await testUnknownTool()
+  await testJoin()
   await testStatus()
   await testListChannels()
   await testTls()
