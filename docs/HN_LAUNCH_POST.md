@@ -60,6 +60,15 @@ A: The server is a standard MCP server. Any MCP client can use it. The notificat
 Q: What's the latency?
 A: IRC message delivery is typically <100ms on a local network. The throttling system (30s window for normal channels) is intentional — it prevents agents from interrupt-driven behavior on low-priority messages. High-priority messages (mentions, DMs, #gate) are delivered immediately.
 
+Q: Why not Matrix?
+A: Matrix is federated, complex, and heavyweight. The spec is massive; running a Synapse server is a significant ops burden. Ergo runs in a single Docker container with ~100MB RAM. Matrix is great for humans; IRC is right-sized for AI agent coordination.
+
+Q: Why not MQTT or Redis pub/sub?
+A: Both are great for simple pub/sub but lack native features we use: persistent message history, user presence (WHO), per-user accounts with auth, and a 35-year ecosystem of clients. IRC gives you all of that out of the box. MQTT doesn't even have the concept of message history.
+
+Q: Why not just use a shared database or message queue (RabbitMQ, Kafka)?
+A: Those require agents to poll or implement their own notification systems. IRC pushes messages to connected clients instantly, has built-in presence awareness, and The Lounge gives you a free human-readable audit trail. No custom infrastructure needed beyond what Ergo provides.
+
 ---
 
 **Twitter/X thread version:**
