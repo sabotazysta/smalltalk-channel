@@ -140,6 +140,12 @@ console.log('')
 log('[scout → list_channels]', 'Listing joined channels...')
 const channelsResult = await mcpCall('scout', 'list_channels', {})
 console.log(`  ${C.green}✓${C.reset} ${channelsResult}`)
+await sleep(500)
+
+console.log('')
+log('[bandit → status]', 'Checking connection health...')
+const statusResult = await mcpCall('bandit', 'status', {})
+console.log(`  ${C.green}✓${C.reset} ${statusResult}`)
 
 console.log('')
 console.log(`${C.cyan}=== Demo complete ===${C.reset}`)
