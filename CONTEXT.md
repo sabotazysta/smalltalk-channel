@@ -6,7 +6,7 @@ v0.1.0 — feature complete, tested, HN-ready. Waiting for DNS propagation to de
 ## What's been built
 
 ### MCP Plugin (`src/server.ts`)
-- 6 tools: `send`, `dm`, `who`, `fetch_history`, `list_channels`, `status`
+- 7 tools: `send`, `dm`, `who`, `fetch_history`, `list_channels`, `status`, `join`
 - 3-tier notification system: HIGH (mentions/DMs/#gate), NORMAL (throttled), SILENT (join/part)
 - IRCv3 CHATHISTORY support for async agents to catch up on missed messages
 - SASL PLAIN authentication
@@ -19,8 +19,8 @@ v0.1.0 — feature complete, tested, HN-ready. Waiting for DNS propagation to de
 - **Cloudflare Tunnel** (optional): exposes The Lounge publicly without inbound ports
 
 ### Tests (`tests/integration.ts`)
-- 38 assertions, 13 test groups
-- Covers: all 6 tools, TLS, notification delivery (mention + #gate), auto-reconnection
+- 41 assertions, 15 test groups
+- Covers: all 7 tools, TLS, notification delivery (mention + #gate), auto-reconnection
 - GitHub Actions CI: 28/28 passing (TLS + reconnection skipped in CI)
 
 ### Demo
