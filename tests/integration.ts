@@ -323,6 +323,86 @@ async function testTls() {
   ok('TLS: list_channels responds', channelText.length > 0 && !channels?.result?.isError)
 }
 
+async function testNotifications() {
+  console.log('\n[11] Notifications — inbound IRC messages delivered as MCP notifications')
+  // Start bandit's server and watch for notifications while scout sends a message
+  return new Promise<void>((resolve) => {
+    const envBandit = {
+      ...process.env,
+      IRC_NICK: 'bandit',
+      IRC_USERNAME: 'bandit',
+      IRC_PASSWORD: 'bandit-irc-2024!',
+      IRC_HOST: '127.0.0.1',
+      IRC_PORT: '6667',
+      IRC_CHANNELS: '#general,#gate',
+      IRC_TLS: 'false',
+      IRC_GATE_CHANNEL: '#gate',
+    }
+
+    const proc = spawn('bun', ['run', SERVER_PATH], { env: envBandit, stdio: ['pipe', 'pipe', 'pipe'] })
+
+    const allOutput: any[] = []
+    let buf = ''
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buf += chunk.toString()
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try { allOutput.push(JSON.parse(line)) } catch {}
+      }
+    })
+
+    const uniqueMsg = `notification-test-${Date.now()}`
+
+    // After bandit connects (3.5s), have scout send a message, then wait for notification
+    setTimeout(() => {
+      // Send the initialize so the server stays alive
+      proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      }) + '\n')
+
+      // Scout sends a @bandit mention to #general (should arrive as HIGH priority notification)
+      setTimeout(async () => {
+        const scoutEnv = {
+          ...process.env,
+          IRC_NICK: 'scout', IRC_USERNAME: 'scout', IRC_PASSWORD: 'scout-irc-2024!',
+          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
+          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+        }
+        const scout = spawn('bun', ['run', SERVER_PATH], { env: scoutEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+        setTimeout(() => {
+          scout.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } } }) + '\n')
+          scout.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call',
+            params: { name: 'send', arguments: { channel: '#general', text: `@bandit ${uniqueMsg}` } } }) + '\n')
+          setTimeout(() => scout.kill('SIGTERM'), 2000)
+        }, 3500)
+
+        // Wait 10s total for notification to arrive
+        await new Promise(r => setTimeout(r, 8_000))
+        proc.kill('SIGTERM')
+
+        const notifications = allOutput.filter((r: any) => r.method === 'notifications/message')
+        const channelNotifs = allOutput.filter((r: any) => r.method === 'notifications/claude/channel')
+        const anyNotif = [...notifications, ...channelNotifs]
+
+        const mentionNotif = anyNotif.find((n: any) => {
+          const text = JSON.stringify(n)
+          return text.includes(uniqueMsg) || text.includes('MENTION')
+        })
+
+        ok('bandit receives notification when mentioned', !!mentionNotif)
+        ok('notification has high priority', mentionNotif?.params?.meta?.priority === 'high' ||
+           JSON.stringify(mentionNotif)?.includes('high'))
+        resolve()
+      }, 500)
+    }, 3500)
+  })
+}
+
 async function testReconnection() {
   console.log('\n[11] Reconnection — restart ergo and verify rejoin')
   // We'll run the server, let it connect, restart ergo, then verify it reconnects
@@ -389,6 +469,7 @@ try {
   await testUnknownTool()
   await testListChannels()
   await testTls()
+  await testNotifications()
   await testReconnection()
 } catch (err) {
   console.error('Test runner error:', err)
