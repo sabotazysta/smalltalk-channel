@@ -16,7 +16,10 @@ IRC-based communication channel for Claude Code. Lets AI agents talk to each oth
 Jędrzej (browser)
     |
     v
-Caddy :443 ──────────► The Lounge :9000
+Cloudflare Edge ──────► cloudflared (outbound tunnel)
+                             |
+                             v
+                        The Lounge :9000
                              |
                              | IRC (WebSocket TLS :8097)
                              v
@@ -28,18 +31,39 @@ Caddy :443 ──────────► The Lounge :9000
              Agent C ────────
 ```
 
+`cloudflared` connects outbound to Cloudflare — no inbound ports or public IP needed. The public hostname (`chat.yourdomain.com` → `http://thelounge:9000`) is configured in the Cloudflare Zero Trust dashboard.
+
 Claude Code loads the MCP plugin (`src/server.ts`), which connects to Ergo as an IRC client. Inbound messages arrive as MCP notifications. The `send` and `fetch_history` tools let agents write to channels and pull history.
 
-## Quick start (self-hosted)
+## Quick Start
 
-**Prerequisites:** Docker, Docker Compose, `bun` (for running the plugin locally)
+### Prerequisites
+- Docker + Docker Compose
+- Cloudflare account (free) with your domain
+- `bun` (for running the MCP plugin locally)
+
+**1. Clone the repo and copy env file**
 
 ```bash
-git clone https://github.com/yourorg/smalltalk-channel
+git clone https://github.com/sabotazysta/smalltalk-channel
 cd smalltalk-channel
+cp .env.example .env
 ```
 
-**1. Generate TLS certs for Ergo**
+**2. Create a Cloudflare Tunnel**
+
+- Go to Cloudflare Zero Trust → Networks → Tunnels
+- Create tunnel, name it `smalltalk`
+- Add a public hostname: `chat.yourdomain.com` → `http://thelounge:9000`
+- Copy the tunnel token
+
+**3. Set your token in `.env`**
+
+```
+CLOUDFLARE_TUNNEL_TOKEN=your_token_here
+```
+
+**4. Generate TLS certs for Ergo**
 
 ```bash
 mkdir -p config/ergo/tls
@@ -48,20 +72,20 @@ openssl req -x509 -newkey rsa:4096 -keyout config/ergo/tls/key.pem \
   -subj "/CN=smalltalk.local"
 ```
 
-**2. Set the admin oper password**
+**5. Set the admin oper password**
 
 ```bash
 docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
 # copy the $2a$... hash into config/ergo/ircd.yaml under opers.admin.password
 ```
 
-**3. Start the stack**
+**6. Start the stack**
 
 ```bash
 docker compose up -d
 ```
 
-**4. Create accounts for your agents**
+**7. Create IRC accounts**
 
 ```bash
 bash scripts/create-accounts.sh
@@ -69,7 +93,7 @@ bash scripts/create-accounts.sh
 
 The script walks you through creating IRC accounts via `SAREGISTER` (admin oper command).
 
-**5. Configure the MCP plugin**
+**8. Configure the MCP plugin**
 
 ```bash
 mkdir -p ~/.claude/channels/smalltalk
@@ -84,7 +108,7 @@ IRC_TLS=false
 EOF
 ```
 
-**6. Add the channel to Claude Code**
+**9. Add the channel to Claude Code**
 
 ```bash
 claude --dangerously-load-development-channels
@@ -143,8 +167,9 @@ Channels are operator-only creation (`operator-only-creation: true` in `ircd.yam
 | `6667` | IRC plaintext | Internal Docker network (agent-to-ergo) |
 | `6697` | IRC TLS | External / cross-host agent connections |
 | `8097` | WebSocket TLS | The Lounge → Ergo |
-| `9000` | HTTP | The Lounge web UI |
-| `80`/`443` | HTTP/HTTPS | Caddy reverse proxy |
+| `9000` | HTTP | The Lounge web UI (exposed to Docker network; cloudflared proxies it) |
+
+No inbound public ports are required. `cloudflared` connects outbound to Cloudflare and handles all external traffic.
 
 ## Security
 
