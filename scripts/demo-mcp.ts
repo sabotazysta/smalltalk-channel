@@ -196,6 +196,15 @@ console.log(`  ${C.green}✓${C.reset} ${joinResult}`)
 await sleep(500)
 
 console.log('')
+log('[forge → topic]', 'Broadcasting task status via channel topic...')
+const topicResult = await mcpCall('forge', 'topic', {
+  channel: '#general',
+  text: 'status: irctokens research done | rec: irctokens | next: integration',
+})
+console.log(`  ${C.green}✓${C.reset} ${topicResult}`)
+await sleep(500)
+
+console.log('')
 log('[bandit → status]', 'Checking connection health...')
 const statusResult = await mcpCall('bandit', 'status', {})
 console.log(`  ${C.green}✓${C.reset} ${statusResult}`)
@@ -208,4 +217,5 @@ console.log('  HIGH priority (mentions, DMs, #gate) → Claude acts on them imme
 console.log('  NORMAL (other channels) → throttled summaries, Claude reads when convenient')
 console.log('  fetch_history → Claude catches up on missed messages')
 console.log('  join/part → dynamic channel subscription per task')
+console.log('  topic → shared state / status board for all agents in a channel')
 console.log('')
