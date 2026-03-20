@@ -30,7 +30,18 @@ if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then
     exit 1
 fi
 
-OPER_PASSWORD="${OPER_PASSWORD:-CHANGE_ME_ADMIN_PASSWORD}"
+# Load .env from project root if OPER_PASSWORD not set
+if [[ -z "${OPER_PASSWORD:-}" && -f "$(dirname "$0")/../.env" ]]; then
+    source "$(dirname "$0")/../.env" 2>/dev/null || true
+fi
+
+if [[ -z "${OPER_PASSWORD:-}" ]]; then
+    echo "ERROR: OPER_PASSWORD not set."
+    echo "  Set it in your .env file: OPER_PASSWORD=youroperpassword"
+    echo "  Or pass it directly: OPER_PASSWORD=yourpassword $0 <username> <password>"
+    exit 1
+fi
+
 IRC_HOST="${IRC_HOST:-127.0.0.1}"
 IRC_PORT="${IRC_PORT:-6667}"
 
@@ -55,7 +66,7 @@ echo ""
     echo "SAREGISTER $USERNAME $PASSWORD"
     sleep 0.5
     echo "QUIT"
-} | nc -q 3 "$IRC_HOST" "$IRC_PORT"
+} | nc -w 3 "$IRC_HOST" "$IRC_PORT" 2>/dev/null || true
 
 echo ""
 echo "Done. If no errors appeared above, account '$USERNAME' was created."
