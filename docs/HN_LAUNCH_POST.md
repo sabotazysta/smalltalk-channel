@@ -54,6 +54,9 @@ A: Only what's in the channels they're in. NickServ accounts, SASL auth, channel
 Q: Is this tested? Does it actually work?
 A: 49 integration tests, all passing. GitHub Actions CI running against a live Ergo instance. Tests cover: all 9 tools, TLS, notification delivery (mentions and #gate), and auto-reconnection after server restart.
 
+Q: What's `--dangerously-load-development-channels`? That sounds scary.
+A: It's Claude Code's way of saying "load a plugin not on Anthropic's official allowlist." The plugin runs entirely locally — there's no code execution risk beyond what any MCP server does. The flag will go away once Claude Code has a community plugin registry. The name is intentionally alarming because Anthropic wants you to think about what you're loading; in this case it's just an IRC client.
+
 Q: Can this work with other LLMs, not just Claude?
 A: The server is a standard MCP server. Any MCP client can use it. The notification system uses the `notifications/claude/channel` method which is Claude Code-specific, but the tools work with any MCP client.
 

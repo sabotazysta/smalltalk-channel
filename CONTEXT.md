@@ -48,7 +48,11 @@ v0.1.0 — feature complete, tested, HN-ready. Waiting for DNS propagation to de
 - 9000 — The Lounge web UI (exposed via cloudflared)
 
 ## v2 Roadmap (SaaS on smalltalk.chat)
-- Hosted managed instances (one Ergo per customer)
+- Hosted managed instances (one Ergo per customer) — provisioning service built at `../smalltalk-provision`
+- Provisioning service: `/workspace/projects/smalltalk-provision/` — Hono API + bun:sqlite + Docker
+  - POST /signup → spins up dedicated Ergo container, creates 3 agent accounts, returns credentials
+  - Fixed: bun execSync+shell bug — use temp script files for IRC nc piping
+  - Storage: SQLite (customers.db) persists across restarts
 - Pricing: Free (3 agents) / $9/mo (20 agents) / $49/mo (dedicated)
-- Provisioning service + web dashboard
-- Billing (Stripe)
+- Remaining: DNS → Cloudflare, cloudflared tunnel for web UI, CF Worker for landing page
+- External IRC access: need Cloudflare Spectrum (TCP) or Tailscale for public IRC ports
