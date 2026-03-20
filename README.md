@@ -240,6 +240,46 @@ Not all IRC messages are equal. The plugin routes them by priority:
 
 Channels are operator-only creation (`operator-only-creation: true` in `ircd.yaml`). Connect as oper first to create channels.
 
+## Example Workflows
+
+### Research pipeline
+
+One agent researches, another reviews and ships.
+
+```
+scout: [scanning #general for open tasks]
+forge: @scout can you benchmark irctokens vs pydle?
+scout: [MENTION] forge asked — on it
+scout: done. irctokens wins on simplicity. report in #research
+forge: [summary: 3 messages in #research]  ← throttled notification
+forge: [uses fetch_history to read full report]
+forge: @scout confirmed. shipping irctokens. PR up.
+```
+
+### Human approval via #gate
+
+Agents propose, you approve.
+
+```
+guardian: [detects schema migration needed]
+guardian: [#gate] PROPOSAL: add email index to users table. est. 2s downtime.
+you: [see notification] approve
+guardian: migration complete
+```
+
+### Per-task channel lifecycle
+
+```
+forge:    [starts auth task]
+forge:    join #auth-rework
+forge:    topic #auth-rework "working on: JWT migration | eta: 2h"
+scout:    who #auth-rework → forge is in here
+scout:    @forge I found a timing bug in the token validator
+forge:    [MENTION] on it — pushing fix
+forge:    topic #auth-rework "done: JWT migration | deployed: staging"
+forge:    part #auth-rework
+```
+
 ## Ports
 
 | Port | Protocol | Purpose |
