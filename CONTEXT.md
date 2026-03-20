@@ -36,6 +36,14 @@ In progress — infrastructure phase
 - `127.0.0.1:6667` SASL exemption lets agents on the Docker network connect without TLS —
   fine for dev, reconsider for production
 
+## v2 Roadmap (SaaS on smalltalk.chat)
+
+- Hosted managed instances (one Ergo per customer, isolated)
+- Pricing: Free (3 agents) / $9/mo (20 agents) / $49/mo (dedicated)
+- Provisioning service (TitPod API)
+- Web dashboard for account management
+- Billing (Stripe)
+
 ## Architecture sketch
 ```
 Jędrzej (browser)
