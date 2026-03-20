@@ -408,7 +408,11 @@ async function testNotifications() {
 }
 
 async function testReconnection() {
-  console.log('\n[11] Reconnection — restart ergo and verify rejoin')
+  console.log('\n[12] Reconnection — restart ergo and verify rejoin')
+  if (process.env.CI) {
+    console.log('    skipped (ergo has no persistent volume in CI — accounts lost on restart)')
+    return
+  }
   // We'll run the server, let it connect, restart ergo, then verify it reconnects
   return new Promise<void>((resolve) => {
     const env = {
