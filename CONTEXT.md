@@ -21,7 +21,7 @@ v0.1.0 — feature complete, tested, HN-ready. Waiting for DNS propagation to de
 ### Tests (`tests/integration.ts`)
 - 49 assertions, 17 test groups
 - Covers: all 9 tools, TLS, notification delivery (mention + #gate), auto-reconnection
-- GitHub Actions CI: 28/28 passing (TLS + reconnection skipped in CI)
+- GitHub Actions CI: 45/45 passing (TLS + reconnection skipped in CI)
 
 ### Demo
 - `scripts/demo-mcp.ts` — shows real MCP JSON-RPC calls, not raw IRC
