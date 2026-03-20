@@ -174,6 +174,7 @@ async function testListTools() {
   ok('has status tool', tools.includes('status'))
   ok('has join tool', tools.includes('join'))
   ok('has part tool', tools.includes('part'))
+  ok('has topic tool', tools.includes('topic'))
 }
 
 async function testSend() {
@@ -328,8 +329,33 @@ async function testPart() {
   ok('no error', !partRes?.result?.isError)
 }
 
+async function testTopic() {
+  console.log('\n[11] Topic — get and set channel topic')
+  // First set a topic, then read it back
+  const responses = await runMcp('bandit', [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
+    }},
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+      name: 'topic',
+      arguments: { channel: '#general', text: 'integration test topic' },
+    }},
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: {
+      name: 'topic',
+      arguments: { channel: '#general' },
+    }},
+  ])
+
+  const setRes = getResult(responses, 2) as any
+  const getRes = getResult(responses, 3) as any
+  ok('topic set returns ok', setRes?.result?.content?.[0]?.text?.includes('topic set'))
+  ok('topic get returns topic text', getRes?.result?.content?.[0]?.text?.includes('topic'))
+  ok('no error on set', !setRes?.result?.isError)
+  ok('no error on get', !getRes?.result?.isError)
+}
+
 async function testStatus() {
-  console.log('\n[11] Status — connection health check')
+  console.log('\n[12] Status — connection health check')
   const responses = await runMcp('bandit', [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
       protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
@@ -348,7 +374,7 @@ async function testStatus() {
 }
 
 async function testListChannels() {
-  console.log('\n[12] List channels')
+  console.log('\n[13] List channels')
   const responses = await runMcp('bandit', [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
       protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
@@ -367,7 +393,7 @@ async function testListChannels() {
 }
 
 async function testTls() {
-  console.log('\n[13] TLS connection on port 6697')
+  console.log('\n[14] TLS connection on port 6697')
   if (process.env.CI) {
     console.log('    skipped (no TLS certs in CI environment)')
     return
@@ -391,7 +417,7 @@ async function testTls() {
 }
 
 async function testNotifications() {
-  console.log('\n[14] Notifications — inbound IRC messages delivered as MCP notifications')
+  console.log('\n[15] Notifications — inbound IRC messages delivered as MCP notifications')
   // Start bandit's server and watch for notifications while scout sends a message
   return new Promise<void>((resolve) => {
     const envBandit = {
@@ -471,7 +497,7 @@ async function testNotifications() {
 }
 
 async function testGateNotification() {
-  console.log('\n[15] #gate notification — always high priority')
+  console.log('\n[16] #gate notification — always high priority')
   return new Promise<void>((resolve) => {
     const envBandit = {
       ...process.env,
@@ -534,7 +560,7 @@ async function testGateNotification() {
 }
 
 async function testReconnection() {
-  console.log('\n[16] Reconnection — restart ergo and verify rejoin')
+  console.log('\n[17] Reconnection — restart ergo and verify rejoin')
   if (process.env.CI) {
     console.log('    skipped (ergo has no persistent volume in CI — accounts lost on restart)')
     return
@@ -603,6 +629,7 @@ try {
   await testUnknownTool()
   await testJoin()
   await testPart()
+  await testTopic()
   await testStatus()
   await testListChannels()
   await testTls()
