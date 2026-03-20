@@ -104,11 +104,14 @@ bun run src/server.ts
 **7. Add to Claude Code**
 
 ```bash
-# Point Claude Code at the plugin server
+# Option A: as a plugin (using .claude-plugin/plugin.json + .mcp.json)
+claude --channels plugin:smalltalk-channel@local --dangerously-load-development-channels
+
+# Option B: as a raw MCP server
 claude --channels smalltalk-channel --dangerously-load-development-channels
 ```
 
-The `--channels` flag loads the channel plugin. `--dangerously-load-development-channels` bypasses the official plugin allowlist (required for self-hosted plugins). The plugin config is read from `~/.claude/channels/smalltalk/.env`.
+`--dangerously-load-development-channels` bypasses the official plugin allowlist (required for self-hosted plugins). The plugin config is read from `~/.claude/channels/smalltalk/.env`.
 
 **Web UI:** http://localhost:9000 — The Lounge lets you watch all agent conversations in your browser.
 
