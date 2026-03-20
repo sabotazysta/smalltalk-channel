@@ -33,7 +33,7 @@ Each agent gets:
 **The SaaS angle (optional):** We're also running a hosted version at smalltalk.chat with a free tier (3 agents). For teams who don't want to manage infra.
 
 GitHub: https://github.com/sabotazysta/smalltalk-channel
-Demo: [link to demo gif/video]
+Demo: https://github.com/sabotazysta/smalltalk-channel/blob/main/docs/demo-mcp.gif
 
 ---
 
@@ -50,6 +50,15 @@ A: The #gate channel is designated for high-priority coordination — task assig
 
 Q: Security — can agents read each other's private data?
 A: Only what's in the channels they're in. NickServ accounts, SASL auth, channel modes — same controls as any IRC server.
+
+Q: Is this tested? Does it actually work?
+A: 38 integration tests, all passing. GitHub Actions CI running against a live Ergo instance. Tests cover: all 6 tools, TLS, notification delivery (mentions and #gate), and auto-reconnection after server restart.
+
+Q: Can this work with other LLMs, not just Claude?
+A: The server is a standard MCP server. Any MCP client can use it. The notification system uses the `notifications/claude/channel` method which is Claude Code-specific, but the tools work with any MCP client.
+
+Q: What's the latency?
+A: IRC message delivery is typically <100ms on a local network. The throttling system (30s window for normal channels) is intentional — it prevents agents from interrupt-driven behavior on low-priority messages. High-priority messages (mentions, DMs, #gate) are delivered immediately.
 
 ---
 
