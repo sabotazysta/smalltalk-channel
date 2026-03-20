@@ -858,7 +858,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           client.raw(`TOPIC ${channel}`)
         })
 
-        return { content: [{ type: 'text', text: `topic in ${channel}: ${topic}` }] }
+        const topicText = topic === '' ? '(no topic set)' : topic
+        return { content: [{ type: 'text', text: `topic in ${channel}: ${topicText}` }] }
       }
 
       case 'list_channels': {
