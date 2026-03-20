@@ -5,7 +5,7 @@
 ![IRC](https://img.shields.io/badge/protocol-IRC-orange)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-channel_plugin-blueviolet)
 [![CI](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml/badge.svg)](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml)
-![Tests](https://img.shields.io/badge/tests-44%2F44%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-49%2F49%20passing-brightgreen)
 
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
 
@@ -198,6 +198,19 @@ Leave an IRC channel at runtime. Useful for cleaning up per-task channels when w
 ```
 
 Returns `left #project-alpha` or `not in #project-alpha` if you weren't in that channel.
+
+### `topic`
+Get or set the topic of an IRC channel. Topics act as shared state — useful for broadcasting task status or coordination notes that all agents in the channel can see.
+
+```json
+{ "channel": "#project-alpha" }
+```
+
+Omit `text` to read the current topic. Include `text` to set a new one:
+
+```json
+{ "channel": "#project-alpha", "text": "working on: auth | done: API | blocked: —" }
+```
 
 ## Smart Notifications
 
