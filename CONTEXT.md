@@ -1,61 +1,54 @@
 # smalltalk-channel — Project Context
 
 ## Status
-In progress — infrastructure phase
+v0.1.0 — feature complete, tested, HN-ready. Waiting for DNS propagation to deploy publicly.
 
 ## What's been built
-- `docker-compose.yml` — ergo + thelounge + caddy, all on `smalltalk` network
-- `config/ergo/ircd.yaml` — full ergo config (closed registration, SASL required, history enabled)
-- `config/caddy/Caddyfile` — placeholder reverse proxy for thelounge
-- `scripts/create-accounts.sh` — helper to create IRC accounts via netcat + SAREGISTER
 
-## What's next
-- MCP channel plugin (`src/`) — TypeScript/Bun, MCP server that wraps IRC
-- README — setup guide, how to create agents, how to connect
-- TLS cert generation helper (or self-signed for local dev)
-- Testing end-to-end: spin up stack, create accounts, connect two agents
+### MCP Plugin (`src/server.ts`)
+- 6 tools: `send`, `dm`, `who`, `fetch_history`, `list_channels`, `status`
+- 3-tier notification system: HIGH (mentions/DMs/#gate), NORMAL (throttled), SILENT (join/part)
+- IRCv3 CHATHISTORY support for async agents to catch up on missed messages
+- SASL PLAIN authentication
+- Auto-reconnect with fallback (irc-framework + manual reconnect on close)
+- TLS support (port 6697)
+
+### Infrastructure (`docker-compose.yml`)
+- **Ergo IRC**: ports 6667 (plaintext), 6697 (TLS), 8097 (WebSocket TLS)
+- **The Lounge**: port 9000 — always-on web IRC client for humans
+- **Cloudflare Tunnel** (optional): exposes The Lounge publicly without inbound ports
+
+### Tests (`tests/integration.ts`)
+- 38 assertions, 13 test groups
+- Covers: all 6 tools, TLS, notification delivery (mention + #gate), auto-reconnection
+- GitHub Actions CI: 28/28 passing (TLS + reconnection skipped in CI)
+
+### Demo
+- `scripts/demo-mcp.ts` — shows real MCP JSON-RPC calls, not raw IRC
+- `docs/demo-mcp.gif` — recorded asciinema demo
+
+### Landing page (`landing/`)
+- `index.html` + `style.css` + `app.js` — retro IRC aesthetic, animated demo, signup form
+- `worker.js` + `wrangler.toml` — Cloudflare Worker for signup backend (D1 database)
+- `local-backend.py` — local dev server for testing landing page without CF
 
 ## Decisions
-- **Name:** smalltalk-channel
-- **Stack:** Ergo IRC + The Lounge + Caddy + custom MCP plugin
-- **Language for plugin:** TypeScript/Bun (matches official claude-plugins-official pattern)
-- **Auth model:** closed registration, SASL required, admin creates accounts per-agent
-- **History:** persistent, 1000 messages per channel — agents can replay on connect
-- **File transfer:** MinIO links (future), text-only for now
-- **Ports:**
-  - 6667 — plaintext, internal Docker only (agent connections on same network)
-  - 6697 — TLS, for external or cross-host agent connections
-  - 8097 — WebSocket TLS, for The Lounge
-  - 9000 — The Lounge web UI (exposed)
-  - 80/443 — Caddy (proxies to The Lounge at configured domain)
 
-## Known issues / things to watch
-- `ergo genpasswd` must be run before first start to set admin oper password
-- TLS certs for ergo need to be generated and placed at `config/ergo/tls/` (not committed)
-- The Lounge needs to be configured to connect to ergo on first run (web UI setup)
-- `127.0.0.1:6667` SASL exemption lets agents on the Docker network connect without TLS —
-  fine for dev, reconsider for production
+- **Name**: smalltalk-channel
+- **Stack**: Ergo IRC + The Lounge + Cloudflare Tunnel + TypeScript/Bun MCP plugin
+- **Auth**: Closed registration, SASL required. Admin creates accounts via SAREGISTER.
+- **History**: In-memory (1000 messages/channel). MySQL for persistence — optional.
+- **External access**: Cloudflare Tunnel (no inbound ports needed). Configured in CF Zero Trust.
+- **Plugin format**: Follows claude-plugins-official pattern — `.claude-plugin/plugin.json` + `.mcp.json`
+
+## Ports
+- 6667 — IRC plaintext (127.0.0.1 only, Docker internal)
+- 6697 — IRC TLS (for external/cross-host agents)
+- 8097 — WebSocket TLS (The Lounge → Ergo)
+- 9000 — The Lounge web UI (exposed via cloudflared)
 
 ## v2 Roadmap (SaaS on smalltalk.chat)
-
-- Hosted managed instances (one Ergo per customer, isolated)
+- Hosted managed instances (one Ergo per customer)
 - Pricing: Free (3 agents) / $9/mo (20 agents) / $49/mo (dedicated)
-- Provisioning service (TitPod API)
-- Web dashboard for account management
+- Provisioning service + web dashboard
 - Billing (Stripe)
-
-## Architecture sketch
-```
-Jędrzej (browser)
-    |
-    v
-Caddy :443  ──────────►  The Lounge :9000
-                              |
-                              | IRC (WebSocket TLS :8097)
-                              v
-                         Ergo IRC :6667/:6697
-                              ^
-                              |
-              Agent A ────────┤  (SASL, plaintext on Docker network)
-              Agent B ────────┘
-```
