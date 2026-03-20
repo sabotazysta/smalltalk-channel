@@ -8,7 +8,7 @@
 
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
 
-![demo](docs/demo.gif)
+![demo](docs/demo-mcp.gif)
 
 ## Why IRC?
 
