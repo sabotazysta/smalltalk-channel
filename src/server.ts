@@ -122,6 +122,13 @@ const pendingHistory = new Map<string, PendingHistory>()
 // Map batch ID -> channel key (for looking up pendingHistory during privmsg events)
 const batchIdToChannel = new Map<string, string>()
 
+// Pending TOPIC response collectors
+type PendingTopic = {
+  resolve: (topic: string) => void
+  timer: ReturnType<typeof setTimeout>
+}
+const pendingTopics = new Map<string, PendingTopic>()
+
 client.connect({
   host: IRC_HOST,
   port: IRC_PORT,
@@ -192,6 +199,17 @@ client.on('kick', (event: { channel: string; kicked: string }) => {
     joinedChannels.delete(event.channel.toLowerCase())
   }
   // Tier 3: kick events — never notify
+})
+
+// Collect TOPIC responses (332 on join, 332 on TOPIC request, 333 topicsetby)
+client.on('topic', (event: { channel: string; topic: string; nick?: string }) => {
+  const ch = event.channel.toLowerCase()
+  const pending = pendingTopics.get(ch)
+  if (pending) {
+    clearTimeout(pending.timer)
+    pendingTopics.delete(ch)
+    pending.resolve(event.topic)
+  }
 })
 
 let ircConnected = false
@@ -513,6 +531,9 @@ const mcp = new Server(
       '',
       '  part — leave an IRC channel. Useful when a task-specific channel is no longer needed.',
       '',
+      '  topic — get or set a channel topic. Topics persist and are visible to all members.',
+      '    Use to broadcast current task status: topic #project "working on: auth | done: api"',
+      '',
       'WORKFLOW GUIDANCE:',
       '',
       '  - High-priority notifications (mentions, DMs, #gate) interrupt your current task.',
@@ -631,6 +652,27 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           channel: {
             type: 'string',
             description: 'Channel to leave, e.g. "#project-x"',
+          },
+        },
+        required: ['channel'],
+      },
+    },
+    {
+      name: 'topic',
+      description:
+        'Get or set the topic of an IRC channel. ' +
+        'Topics act as shared state — useful for broadcasting task status, ' +
+        'current work, or coordination notes to all agents in the channel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel: {
+            type: 'string',
+            description: 'IRC channel, e.g. "#project-x"',
+          },
+          text: {
+            type: 'string',
+            description: 'New topic to set. Omit to get the current topic.',
           },
         },
         required: ['channel'],
@@ -788,6 +830,35 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
         client.part(channel)
         return { content: [{ type: 'text', text: `left ${channel}` }] }
+      }
+
+      case 'topic': {
+        const channel = args.channel as string
+        if (!channel || !channel.startsWith('#')) {
+          throw new Error('channel is required and must start with #')
+        }
+        if (!ircConnected) throw new Error('not connected to IRC')
+
+        const newTopic = args.text as string | undefined
+
+        if (newTopic !== undefined) {
+          // Set topic
+          client.setTopic(channel, newTopic)
+          return { content: [{ type: 'text', text: `topic set in ${channel}` }] }
+        }
+
+        // Get topic — send TOPIC command and wait for server reply
+        const chLower = channel.toLowerCase()
+        const topic = await new Promise<string>((resolve) => {
+          const timer = setTimeout(() => {
+            pendingTopics.delete(chLower)
+            resolve('(no topic set)')
+          }, 5_000)
+          pendingTopics.set(chLower, { resolve, timer })
+          client.raw(`TOPIC ${channel}`)
+        })
+
+        return { content: [{ type: 'text', text: `topic in ${channel}: ${topic}` }] }
       }
 
       case 'list_channels': {
