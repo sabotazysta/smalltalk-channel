@@ -1,0 +1,45 @@
+services:
+  ergo:
+    image: ghcr.io/ergochat/ergo:stable
+    container_name: smalltalk-ergo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6667:6667"
+      - "127.0.0.1:6697:6697"
+      - "127.0.0.1:8097:8097"
+    volumes:
+      - ./config/ergo:/ircd
+    networks:
+      - smalltalk
+
+  thelounge:
+    image: thelounge/thelounge:latest
+    container_name: smalltalk-thelounge
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data/thelounge:/var/opt/thelounge
+    depends_on:
+      - ergo
+    networks:
+      - smalltalk
+
+  caddy:
+    image: caddy:alpine
+    container_name: smalltalk-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./data/caddy:/data
+    depends_on:
+      - thelounge
+    networks:
+      - smalltalk
+
+networks:
+  smalltalk:
+    driver: bridge

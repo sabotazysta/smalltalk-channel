@@ -1,0 +1,214 @@
+# Ergo IRCd configuration for smalltalk-channel
+# Full docs: https://github.com/ergochat/ergo/blob/stable/docs/MANUAL.md
+#
+# BEFORE STARTING:
+#   1. Generate admin password hash:  docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
+#   2. Replace CHANGE_ME_ADMIN_PASSWORD below with the generated hash
+#   3. Generate TLS certs (see scripts/create-accounts.sh) and place in config/ergo/tls/
+
+network:
+  name: smalltalk
+
+server:
+  name: smalltalk.local
+  # Used in server-to-server federation (not needed for single-server setup)
+  # but required by ergo
+  enforce-utf8: true
+
+  listeners:
+    # Plaintext — internal Docker network only (no tls key = plaintext)
+    "127.0.0.1:6667": {}
+
+    # TLS — agents and external clients
+    "0.0.0.0:6697":
+      tls:
+        cert: /ircd/tls/cert.pem
+        key: /ircd/tls/key.pem
+
+    # WebSocket with TLS — The Lounge connects here
+    "0.0.0.0:8097":
+      websocket: true
+      tls:
+        cert: /ircd/tls/cert.pem
+        key: /ircd/tls/key.pem
+
+  # Limits
+  max-sendq: "96k"
+  connection-limits:
+    enabled: true
+    cidr-len-ipv4: 32
+    cidr-len-ipv6: 64
+    ips-per-subnet: 64
+    exempted:
+      - "localhost"
+      - "172.16.0.0/12"  # Docker network range
+
+  connection-throttling:
+    enabled: true
+    cidr-len-ipv4: 32
+    cidr-len-ipv6: 64
+    connections-per-duration: 12
+    duration: 10s
+    ban-duration: 10m
+    exempted:
+      - "localhost"
+      - "172.16.0.0/12"
+
+  lookup-hostnames: false
+  forward-confirm-hostnames: false
+
+  check-ident: false
+
+  motd: ""
+
+  relaymsg:
+    enabled: false
+
+  ip-cloaking:
+    enabled: false
+
+  # Suppress initial server messages spam
+  suppress-lusers: false
+
+datastore:
+  path: /ircd/ircd.db
+  # For better performance with concurrent agents
+  slow-consumer-elimination:
+    enabled: true
+    threshold: 2048
+    limit: 2048
+
+accounts:
+  # Closed registration — accounts created by admin only
+  registration:
+    enabled: false
+    # Admin can still create accounts via SAREGISTER (oper command)
+    allow-before-connect: false
+    throttling:
+      enabled: false
+    bcrypt-cost: 12
+
+  # All clients must authenticate via SASL
+  require-sasl:
+    enabled: true
+    # Exemptions for local plaintext connections (agents on same Docker network)
+    exempted:
+      - "127.0.0.1"
+
+  authentication-enabled: true
+
+  # Nickname reservation
+  nick-reservation:
+    enabled: true
+    additional-nick-limit: 0
+    method: strict
+    allow-custom-enforcement: false
+    guest-nick-format: "Guest-*"
+    force-guest-format: false
+    force-nick-equals-account: true
+
+  multiclient:
+    enabled: true
+    allowed-by-default: true
+    always-on: opt-in
+    auto-away: opt-out
+
+  vhosts:
+    enabled: false
+
+channels:
+  # Operators create channels; no auto-join
+  default-modes: "+nt"
+  # Max channels a user can be in
+  max-channels-per-client: 50
+  operator-only-creation: true
+  registration:
+    enabled: true
+    operator-only-registration: true
+
+limits:
+  nicklen: 32
+  identlen: 20
+  channellen: 64
+  awaylen: 390
+  kicklen: 390
+  topiclen: 390
+  monitor: 100
+  whowas-entries: 100
+  multiline:
+    max-bytes: 4096
+    max-lines: 100
+
+history:
+  enabled: true
+  channel-length: 1000
+  client-length: 256
+  autoresize-window: 3d
+  autoreplay-on-join: 0
+  chathistory-maxmessages: 1000
+  znc-maxmessages: 2048
+  restrictions:
+    expire-time: 1w
+    query-cutoff: none
+    grace-period: 1h
+  # Persistent history requires MySQL — disabled for simplicity.
+  # In-memory history (up to channel-length messages) is still active.
+  # If you want persistent history across restarts, add a MySQL service
+  # and configure datastore.mysql below.
+  persistent:
+    enabled: false
+    unregistered-channels: false
+    registered-channels: opt-out
+    direct-messages: opt-out
+  retention:
+    allow-individual-user-delete: true
+    enable-account-indexing: true
+  tagmsg-storage:
+    default: false
+    whitelist:
+      - "+draft/react"
+      - "+react"
+
+# IRCv3 capabilities
+ircv3:
+  # chathistory is implied by history.enabled above
+
+logging:
+  - method: stderr
+    type: "* -userinput -useroutput"
+    level: info
+
+opers:
+  # IMPORTANT: Replace the password hash below.
+  # Generate with: docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
+  # Then paste the $2a$... bcrypt hash here.
+  admin:
+    class: "server-admins"
+    whois-line: smalltalk admin
+    # CHANGE THIS — paste bcrypt hash from `ergo genpasswd`
+    password: "CHANGE_ME_ADMIN_PASSWORD"
+
+oper-classes:
+  "server-admins":
+    title: Server Admin
+    flags:
+      - "local_kill"
+      - "local_ban"
+      - "local_unban"
+      - "nofakelag"
+      - "relaymsg"
+      - "vhosts"
+      - "sajoin"
+      - "samode"
+      - "snomasks"
+      - "roleplay"
+      - "accreg"
+      - "chanreg"
+      - "history"
+      - "defcon"
+      - "massmessage"
+      - "rehash"
+      - "die"
+
+debug:
+  recover-from-errors: true

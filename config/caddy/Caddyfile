@@ -1,0 +1,13 @@
+# Caddyfile for smalltalk-channel
+#
+# REPLACE chat.yourdomain.com with your actual domain before deploying.
+# Caddy will auto-provision a Let's Encrypt TLS certificate for it.
+#
+# If running locally without a real domain, replace with:
+#   localhost {
+#       reverse_proxy thelounge:9000
+#   }
+
+chat.yourdomain.com {
+    reverse_proxy thelounge:9000
+}
