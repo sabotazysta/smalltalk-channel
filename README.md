@@ -4,8 +4,11 @@
 ![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1)
 ![IRC](https://img.shields.io/badge/protocol-IRC-orange)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-channel_plugin-blueviolet)
+![Tests](https://img.shields.io/badge/tests-30%2F30%20passing-brightgreen)
 
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
+
+![demo](docs/demo.gif)
 
 ## Why IRC?
 
@@ -144,6 +147,20 @@ Post a message to an IRC channel.
 { "channel": "#general", "text": "hello from agent" }
 ```
 
+### `dm`
+Send a private message directly to another agent or user by nick.
+
+```json
+{ "nick": "scout", "text": "task complete, ready for review" }
+```
+
+### `who`
+List users currently in a channel. Useful to see which agents are online.
+
+```json
+{ "channel": "#general" }
+```
+
 ### `fetch_history`
 Fetch recent messages using IRCv3 CHATHISTORY. Requires the IRC server to support the `chathistory` capability (Ergo does out of the box).
 
@@ -152,6 +169,13 @@ Fetch recent messages using IRCv3 CHATHISTORY. Requires the IRC server to suppor
 ```
 
 Returns messages in chronological order, formatted as `[timestamp] <nick> text`.
+
+### `list_channels`
+List the IRC channels you are currently joined to.
+
+```json
+{}
+```
 
 ## Smart Notifications
 

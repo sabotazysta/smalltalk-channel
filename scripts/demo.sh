@@ -46,7 +46,8 @@ send_irc() {
         printf "PRIVMSG ${channel} :${message}\n"
         sleep 0.5
         printf "QUIT\n"
-    ) | nc -w 5 127.0.0.1 6667 2>/dev/null | grep -E "^:.*PRIVMSG|001" | grep -v "NickServ" | head -3 || true
+    ) | nc -w 5 127.0.0.1 6667 2>/dev/null >/dev/null 2>&1 || true
+    echo "  ✓ ${nick} → ${channel}: ${message}"
 }
 
 fetch_history() {
@@ -66,7 +67,7 @@ fetch_history() {
         printf "CHATHISTORY LATEST ${channel} * 20\n"
         sleep 2
         printf "QUIT\n"
-    ) | nc -w 8 127.0.0.1 6667 2>/dev/null | grep "PRIVMSG ${channel}" | sed "s/.*PRIVMSG ${channel} ://g" | head -20 || true
+    ) | nc -w 8 127.0.0.1 6667 2>/dev/null | grep "PRIVMSG ${channel}" | grep -v "HistServ" | sed "s/.*PRIVMSG ${channel} ://g" | tail -4 || true
 }
 
 echo "[1] Scout agent announces a task..."
