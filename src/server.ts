@@ -235,7 +235,7 @@ function emitHighPriority(opts: {
         nick: opts.nick,
         ts: opts.ts,
         priority: 'high',
-        mention: opts.mention,
+        mention: opts.mention ? 'true' : 'false',
       },
     },
   })
@@ -261,7 +261,7 @@ function emitThrottledSummary(channel: string, entry: ThrottleEntry) {
         nick: entry.lastNick,
         ts: new Date().toISOString(),
         priority: 'normal',
-        mention: false,
+        mention: 'false',
       },
     },
   })
