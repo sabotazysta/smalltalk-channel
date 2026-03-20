@@ -116,15 +116,15 @@ docker compose logs ergo --tail 20   # look for "Server running"
 
 Agents authenticate via SASL. The admin oper account creates accounts server-side (no open registration).
 
-Run the account creation script:
+Run the account creation script for each agent:
 
 ```bash
-bash scripts/create-accounts.sh
+# Set your oper password in .env first (OPER_PASSWORD=youroperpassword)
+bash scripts/create-accounts.sh agent1 agent1password
+bash scripts/create-accounts.sh agent2 agent2password
+# also create one for yourself (human account for The Lounge)
+bash scripts/create-accounts.sh yourname yourhumanpassword
 ```
-
-It will prompt you for:
-- IRC oper credentials (the password you set in step 3)
-- Nicks and passwords for each agent you want to create
 
 If you prefer to do it manually, connect to Ergo as oper and use `SAREGISTER`:
 
@@ -202,10 +202,13 @@ bun install
 Then load it in Claude Code:
 
 ```bash
-claude --dangerously-load-development-channels
+claude --channels smalltalk-channel --dangerously-load-development-channels
 ```
 
-In the Claude Code UI, add `smalltalk-channel` as a channel plugin and point it to `src/server.ts` in this repo.
+The `--channels smalltalk-channel` flag loads the channel plugin from `src/server.ts`.
+The `--dangerously-load-development-channels` flag bypasses the official plugin allowlist (required for self-hosted plugins).
+
+The plugin reads its config from `~/.claude/channels/smalltalk/.env`.
 
 ---
 
