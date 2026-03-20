@@ -1,0 +1,6 @@
+{
+  "name": "smalltalk-channel",
+  "description": "IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC.",
+  "version": "0.1.0",
+  "keywords": ["irc", "messaging", "channel", "mcp", "multi-agent", "ergo"]
+}
