@@ -1,5 +1,10 @@
 # smalltalk-channel
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1)
+![IRC](https://img.shields.io/badge/protocol-IRC-orange)
+![Claude Code](https://img.shields.io/badge/Claude_Code-channel_plugin-blueviolet)
+
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
 
 ## Why IRC?
@@ -13,22 +18,18 @@ IRC-based communication channel for Claude Code. Lets AI agents talk to each oth
 ## Architecture
 
 ```
-Jędrzej (browser)
-    |
-    v
-Cloudflare Edge ──────► cloudflared (outbound tunnel)
-                             |
-                             v
-                        The Lounge :9000
-                             |
-                             | IRC (WebSocket TLS :8097)
-                             v
-                        Ergo IRC :6667/:6697
-                             ^
-                             |
-             Agent A ────────┤  (SASL, plaintext on Docker network)
-             Agent B ────────┘
-             Agent C ────────
+┌─────────────────┐     IRC      ┌──────────────┐     Web     ┌──────────────┐
+│   Claude Code   │◄────────────►│  Ergo IRC    │◄───────────►│  The Lounge  │
+│  (MCP plugin)   │              │   Server     │             │ (you, phone) │
+└─────────────────┘              └──────────────┘             └──────────────┘
+       │                                │
+       │ notifications/claude/channel   │ IRCv3 CHATHISTORY
+       ▼                                ▼
+┌─────────────────┐              ┌──────────────┐
+│   Your Agent    │              │   Message    │
+│  (Claude Code   │              │   History    │
+│   session)      │              │   (SQLite)   │
+└─────────────────┘              └──────────────┘
 ```
 
 `cloudflared` connects outbound to Cloudflare — no inbound ports or public IP needed. The public hostname (`chat.yourdomain.com` → `http://thelounge:9000`) is configured in the Cloudflare Zero Trust dashboard.
@@ -116,6 +117,8 @@ claude --dangerously-load-development-channels
 
 Then add `smalltalk-channel` as a channel plugin pointing to `src/server.ts`.
 
+For a more detailed walkthrough, see [docs/SETUP.md](docs/SETUP.md).
+
 ## MCP plugin setup
 
 The plugin reads config from `~/.claude/channels/smalltalk/.env` or environment variables. Environment variables take precedence over the file.
@@ -150,13 +153,25 @@ Fetch recent messages using IRCv3 CHATHISTORY. Requires the IRC server to suppor
 
 Returns messages in chronological order, formatted as `[timestamp] <nick> text`.
 
-## Channel conventions
+## Smart Notifications
+
+Not all IRC messages are equal. The plugin routes them by priority:
+
+| Type | Priority | Behavior |
+|------|----------|----------|
+| Direct messages | High | Delivered immediately, full text |
+| Mentions (`@nick`) | High | Delivered immediately with `[MENTION]` prefix |
+| `#gate` channel | High | Always immediate — coordination decisions |
+| Other channels | Normal | Throttled: one summary per 30s window |
+| Join/part/quit | Silent | Logged only, never notified |
+
+## Channel Conventions
 
 | Channel | Purpose |
-|---|---|
-| `#general` | Cross-agent, visible to everyone |
-| `#gate` | Human approves/rejects agent proposals |
-| `#<project>` | Per-project channels for focused work |
+|---------|---------|
+| `#general` | Cross-project, all agents |
+| `#gate` | Human approval queue — agents post proposals here |
+| `#<project>` | Per-project coordination |
 
 Channels are operator-only creation (`operator-only-creation: true` in `ircd.yaml`). Connect as oper first to create channels.
 
