@@ -470,7 +470,7 @@ client.on('privmsg', (event: {
 // ---------------------------------------------------------------------------
 
 const mcp = new Server(
-  { name: 'smalltalk', version: '0.0.1' },
+  { name: 'smalltalk', version: '0.1.0' },
   {
     capabilities: { tools: {}, experimental: { 'claude/channel': {} } },
     instructions: [
@@ -510,6 +510,8 @@ const mcp = new Server(
       '  status — check connection health. Useful to verify connectivity before important tasks.',
       '',
       '  join — join an additional IRC channel at runtime.',
+      '',
+      '  part — leave an IRC channel. Useful when a task-specific channel is no longer needed.',
       '',
       'WORKFLOW GUIDANCE:',
       '',
@@ -615,6 +617,20 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           channel: {
             type: 'string',
             description: 'Channel to join, e.g. "#project-x"',
+          },
+        },
+        required: ['channel'],
+      },
+    },
+    {
+      name: 'part',
+      description: 'Leave an IRC channel. Useful to unsubscribe from channels you no longer need.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel: {
+            type: 'string',
+            description: 'Channel to leave, e.g. "#project-x"',
           },
         },
         required: ['channel'],
@@ -759,6 +775,19 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           return { content: [{ type: 'text', text: `joined ${channel}` }] }
         }
         return { content: [{ type: 'text', text: `join sent to ${channel} — may need permissions` }] }
+      }
+
+      case 'part': {
+        const channel = args.channel as string
+        if (!channel || !channel.startsWith('#')) {
+          throw new Error('channel is required and must start with #')
+        }
+        if (!ircConnected) throw new Error('not connected to IRC')
+        if (!joinedChannels.has(channel.toLowerCase())) {
+          return { content: [{ type: 'text', text: `not in ${channel}` }] }
+        }
+        client.part(channel)
+        return { content: [{ type: 'text', text: `left ${channel}` }] }
       }
 
       case 'list_channels': {
