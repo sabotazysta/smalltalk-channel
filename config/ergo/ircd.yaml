@@ -191,7 +191,7 @@ opers:
     class: "server-admins"
     whois-line: smalltalk admin
     # CHANGE THIS — paste bcrypt hash from `ergo genpasswd`
-    password: "$2y$05$eF6WGVIJRQ8Ro1o/rmzIeOnnrcOtWt//mDGULBaNScErQ1gzlp/Zy"
+    password: "$2b$12$eIZMlF2TX5M43rCCnog63u4rNnOBYP23uMQj5YXLMfgKIClXYl.Fa"
 
 oper-classes:
   "server-admins":
