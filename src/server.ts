@@ -96,6 +96,17 @@ client.requestCap(['batch', 'draft/chathistory', 'server-time', 'message-tags'])
 // Track joined channels so we only forward messages from channels we're in
 const joinedChannels = new Set<string>()
 
+// Track users in channels (from NAMES responses)
+const channelUsers = new Map<string, Set<string>>()
+
+// Pending NAMES response collectors
+type PendingNames = {
+  users: string[]
+  resolve: (users: string[]) => void
+  timer: ReturnType<typeof setTimeout>
+}
+const pendingNames = new Map<string, PendingNames>()
+
 // Pending CHATHISTORY response collectors
 // key: channel name (lowercased)
 type HistoryMessage = { ts: string; nick: string; text: string }
@@ -129,6 +140,7 @@ client.connect({
 })
 
 client.on('registered', () => {
+  ircConnected = true
   process.stderr.write(`smalltalk channel: connected as ${IRC_NICK} on ${IRC_HOST}:${IRC_PORT}\n`)
   for (const ch of IRC_CHANNELS) {
     client.join(ch)
@@ -155,6 +167,20 @@ client.on('quit', (_event: { nick: string; message: string }) => {
   // Tier 3: quit events — never notify
 })
 
+// Collect NAMES responses for the who tool
+client.on('userlist', (event: { channel: string; users: Array<{ nick: string; modes: string[] }> }) => {
+  const ch = event.channel.toLowerCase()
+  const users = new Set(event.users.map((u: { nick: string }) => u.nick))
+  channelUsers.set(ch, users)
+
+  const pending = pendingNames.get(ch)
+  if (pending) {
+    clearTimeout(pending.timer)
+    pendingNames.delete(ch)
+    pending.resolve(event.users.map((u: { nick: string }) => u.nick))
+  }
+})
+
 client.on('kick', (event: { channel: string; kicked: string }) => {
   if (event.kicked === IRC_NICK) {
     joinedChannels.delete(event.channel.toLowerCase())
@@ -162,12 +188,16 @@ client.on('kick', (event: { channel: string; kicked: string }) => {
   // Tier 3: kick events — never notify
 })
 
+let ircConnected = false
+
 client.on('close', () => {
   process.stderr.write('smalltalk channel: IRC connection closed, will reconnect...\n')
+  ircConnected = false
   joinedChannels.clear()
 })
 
 client.on('socket close', () => {
+  ircConnected = false
   joinedChannels.clear()
 })
 
@@ -431,6 +461,8 @@ const mcp = new Server(
       '',
       '  send — post a message to a channel. Pass channel (e.g. "#general") and text.',
       '',
+      '  who — list users currently in a channel. Useful to see which agents are online.',
+      '',
       '  fetch_history — retrieve recent messages from a channel (IRCv3 CHATHISTORY).',
       '    Use this whenever you see a normal-priority summary and want the full context.',
       '    The IRC server must support the chathistory capability.',
@@ -464,6 +496,20 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ['channel', 'text'],
+      },
+    },
+    {
+      name: 'who',
+      description: 'List users currently in an IRC channel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel: {
+            type: 'string',
+            description: 'IRC channel to list users in, e.g. "#general"',
+          },
+        },
+        required: ['channel'],
       },
     },
     {
@@ -503,9 +549,36 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           throw new Error('channel and text are required')
         }
 
+        if (!ircConnected) {
+          throw new Error('not connected to IRC — server may be down, will reconnect automatically')
+        }
+
         client.say(channel, text)
         return {
           content: [{ type: 'text', text: `sent to ${channel}` }],
+        }
+      }
+
+      case 'who': {
+        const channel = (args.channel as string).toLowerCase()
+        if (!channel) throw new Error('channel is required')
+
+        const users = await new Promise<string[]>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            pendingNames.delete(channel)
+            reject(new Error('NAMES request timed out'))
+          }, 5_000)
+
+          pendingNames.set(channel, { users: [], resolve, timer })
+          client.raw(`NAMES ${channel}`)
+        })
+
+        if (users.length === 0) {
+          return { content: [{ type: 'text', text: `no users in ${channel} (or not joined)` }] }
+        }
+
+        return {
+          content: [{ type: 'text', text: `users in ${channel} (${users.length}): ${users.join(', ')}` }],
         }
       }
 
@@ -579,6 +652,21 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
     }
   }
 })
+
+// ---------------------------------------------------------------------------
+// Clean shutdown
+// ---------------------------------------------------------------------------
+
+function shutdown(signal: string) {
+  process.stderr.write(`smalltalk channel: received ${signal}, disconnecting...\n`)
+  try {
+    client.quit('Claude Code shutting down')
+  } catch {}
+  setTimeout(() => process.exit(0), 500)
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 // ---------------------------------------------------------------------------
 // Start
