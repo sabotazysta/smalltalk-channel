@@ -407,8 +407,71 @@ async function testNotifications() {
   })
 }
 
+async function testGateNotification() {
+  console.log('\n[12] #gate notification — always high priority')
+  return new Promise<void>((resolve) => {
+    const envBandit = {
+      ...process.env,
+      IRC_NICK: 'bandit', IRC_USERNAME: 'bandit', IRC_PASSWORD: 'bandit-irc-2024!',
+      IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
+      IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+    }
+
+    const proc = spawn('bun', ['run', SERVER_PATH], { env: envBandit, stdio: ['pipe', 'pipe', 'pipe'] })
+
+    const allOutput: any[] = []
+    let buf = ''
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buf += chunk.toString()
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try { allOutput.push(JSON.parse(line)) } catch {}
+      }
+    })
+
+    const gateMsg = `gate-test-${Date.now()}`
+
+    setTimeout(() => {
+      proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      }) + '\n')
+
+      // Forge sends a message to #gate
+      setTimeout(async () => {
+        const forgeEnv = {
+          ...process.env,
+          IRC_NICK: 'forge', IRC_USERNAME: 'forge', IRC_PASSWORD: 'forge-irc-2024!',
+          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
+          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+        }
+        const forge = spawn('bun', ['run', SERVER_PATH], { env: forgeEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+        setTimeout(() => {
+          forge.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } } }) + '\n')
+          forge.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call',
+            params: { name: 'send', arguments: { channel: '#gate', text: gateMsg } } }) + '\n')
+          setTimeout(() => forge.kill('SIGTERM'), 2000)
+        }, 3500)
+
+        await new Promise(r => setTimeout(r, 8_000))
+        proc.kill('SIGTERM')
+
+        const channelNotifs = allOutput.filter((r: any) => r.method === 'notifications/claude/channel')
+        const gateNotif = channelNotifs.find((n: any) => JSON.stringify(n).includes(gateMsg))
+
+        ok('#gate message arrives as notification', !!gateNotif)
+        ok('#gate notification has high priority', gateNotif?.params?.meta?.priority === 'high')
+        resolve()
+      }, 500)
+    }, 3500)
+  })
+}
+
 async function testReconnection() {
-  console.log('\n[12] Reconnection — restart ergo and verify rejoin')
+  console.log('\n[13] Reconnection — restart ergo and verify rejoin')
   if (process.env.CI) {
     console.log('    skipped (ergo has no persistent volume in CI — accounts lost on restart)')
     return
@@ -478,6 +541,7 @@ try {
   await testListChannels()
   await testTls()
   await testNotifications()
+  await testGateNotification()
   await testReconnection()
 } catch (err) {
   console.error('Test runner error:', err)
