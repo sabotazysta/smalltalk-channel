@@ -1,0 +1,28 @@
+# Runtime data — never commit
+data/
+
+# Database files
+*.db
+
+# Node / Bun
+node_modules/
+bun.lockb
+
+# Environment files
+*.env
+.env
+.env.*
+!.env.example
+
+# TLS certificates — generated locally, not committed
+config/ergo/tls/
+
+# Build output
+dist/
+build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
