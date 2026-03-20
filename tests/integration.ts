@@ -305,6 +305,10 @@ async function testListChannels() {
 
 async function testTls() {
   console.log('\n[10] TLS connection on port 6697')
+  if (process.env.CI) {
+    console.log('    skipped (no TLS certs in CI environment)')
+    return
+  }
   // TLS takes a bit longer to negotiate — give it 6s before sending messages
   const responses = await runMcpWithDelay('bandit', [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: {

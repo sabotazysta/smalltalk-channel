@@ -1,0 +1,67 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: cd src && bun install
+
+      - name: Start Ergo IRC server
+        run: |
+          docker run -d \
+            --name ergo \
+            -p 127.0.0.1:6667:6667 \
+            -p 127.0.0.1:6697:6697 \
+            -v ${{ github.workspace }}/config/ergo/ircd.ci.yaml:/ircd/ircd.yaml \
+            ghcr.io/ergochat/ergo:stable
+          # wait for ergo to be ready
+          for i in $(seq 1 15); do
+            nc -z 127.0.0.1 6667 2>/dev/null && echo "ergo ready" && break
+            sleep 1
+          done
+
+      - name: Create IRC test accounts
+        run: |
+          create_account() {
+            local nick="$1"
+            local pass="$2"
+            {
+              echo "NICK setup"
+              echo "USER setup 0 * :setup"
+              sleep 1
+              echo "OPER admin ci-oper-2024!"
+              sleep 0.5
+              echo "NS SAREGISTER $nick $pass"
+              sleep 0.5
+              echo "QUIT"
+            } | nc -w 5 127.0.0.1 6667 >/dev/null 2>&1 || true
+          }
+
+          create_account bandit  "bandit-irc-2024!"
+          create_account scout   "scout-irc-2024!"
+          create_account forge   "forge-irc-2024!"
+          echo "IRC accounts created"
+
+      - name: Run integration tests
+        run: |
+          cd ${{ github.workspace }}
+          bun run tests/integration.ts
+        env:
+          # Skip TLS test on CI (no certs)
+          CI: true
