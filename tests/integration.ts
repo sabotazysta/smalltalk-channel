@@ -305,7 +305,7 @@ async function testJoin() {
 }
 
 async function testStatus() {
-  console.log('\n[9] Status — connection health check')
+  console.log('\n[10] Status — connection health check')
   const responses = await runMcp('bandit', [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
       protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
@@ -324,7 +324,7 @@ async function testStatus() {
 }
 
 async function testListChannels() {
-  console.log('\n[9] List channels')
+  console.log('\n[11] List channels')
   const responses = await runMcp('bandit', [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
       protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
@@ -343,7 +343,7 @@ async function testListChannels() {
 }
 
 async function testTls() {
-  console.log('\n[10] TLS connection on port 6697')
+  console.log('\n[12] TLS connection on port 6697')
   if (process.env.CI) {
     console.log('    skipped (no TLS certs in CI environment)')
     return
@@ -367,7 +367,7 @@ async function testTls() {
 }
 
 async function testNotifications() {
-  console.log('\n[11] Notifications — inbound IRC messages delivered as MCP notifications')
+  console.log('\n[13] Notifications — inbound IRC messages delivered as MCP notifications')
   // Start bandit's server and watch for notifications while scout sends a message
   return new Promise<void>((resolve) => {
     const envBandit = {
@@ -447,7 +447,7 @@ async function testNotifications() {
 }
 
 async function testGateNotification() {
-  console.log('\n[12] #gate notification — always high priority')
+  console.log('\n[14] #gate notification — always high priority')
   return new Promise<void>((resolve) => {
     const envBandit = {
       ...process.env,
@@ -510,7 +510,7 @@ async function testGateNotification() {
 }
 
 async function testReconnection() {
-  console.log('\n[13] Reconnection — restart ergo and verify rejoin')
+  console.log('\n[15] Reconnection — restart ergo and verify rejoin')
   if (process.env.CI) {
     console.log('    skipped (ergo has no persistent volume in CI — accounts lost on restart)')
     return
