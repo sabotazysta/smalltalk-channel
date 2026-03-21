@@ -1,0 +1,6 @@
+ingress:
+  - hostname: chat.smalltalk.chat
+    service: http://thelounge:9000
+  - hostname: irc.smalltalk.chat
+    service: http://ergo:8098
+  - service: http_status:404
