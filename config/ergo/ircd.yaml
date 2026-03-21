@@ -33,6 +33,10 @@ server:
         cert: /ircd/tls/cert.pem
         key: /ircd/tls/key.pem
 
+    # WebSocket plaintext — for Cloudflare Tunnel (CF handles TLS at edge)
+    "0.0.0.0:8098":
+      websocket: true
+
   # Limits
   max-sendq: "96k"
   connection-limits:

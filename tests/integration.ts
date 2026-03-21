@@ -33,7 +33,7 @@ function ok(name: string, result: boolean, detail = '') {
 }
 
 /** runMcp with custom initial delay before sending messages. */
-async function runMcpWithDelay(nick: string, messages: object[], opts: { port?: string; tls?: string; delay?: number } = {}): Promise<object[]> {
+async function runMcpWithDelay(nick: string, messages: object[], opts: { port?: string; tls?: string; delay?: number; websocket?: string } = {}): Promise<object[]> {
   const delay = opts.delay ?? 3000
   return new Promise((resolve) => {
     const env = {
@@ -46,6 +46,7 @@ async function runMcpWithDelay(nick: string, messages: object[], opts: { port?: 
       IRC_CHANNELS: '#general,#gate',
       IRC_TLS: opts.tls ?? 'false',
       IRC_GATE_CHANNEL: '#gate',
+      ...(opts.websocket ? { IRC_WEBSOCKET: opts.websocket } : {}),
     }
 
     const { spawn } = require('child_process')
@@ -416,8 +417,31 @@ async function testTls() {
   ok('TLS: list_channels responds', channelText.length > 0 && !channels?.result?.isError)
 }
 
+async function testWebSocket() {
+  console.log('\n[15] WebSocket transport — connect via ws:// instead of raw TCP')
+  if (process.env.CI) {
+    console.log('    skipped (WebSocket port 8098 not exposed in CI)')
+    return
+  }
+  const responses = await runMcpWithDelay('bandit', [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' },
+    }},
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+      name: 'status',
+      arguments: {},
+    }},
+  ], { port: '8098', tls: 'false', websocket: 'true', delay: 4000 })
+
+  const init = getResult(responses, 1) as any
+  const status = getResult(responses, 2) as any
+  ok('WebSocket: initialize succeeds', init?.result?.protocolVersion === '2024-11-05')
+  ok('WebSocket: status returns connected', status?.result?.content?.[0]?.text?.includes('connected'))
+  ok('WebSocket: no error', !status?.result?.isError)
+}
+
 async function testNotifications() {
-  console.log('\n[15] Notifications — inbound IRC messages delivered as MCP notifications')
+  console.log('\n[16] Notifications — inbound IRC messages delivered as MCP notifications')
   // Start bandit's server and watch for notifications while scout sends a message
   return new Promise<void>((resolve) => {
     const envBandit = {
@@ -497,7 +521,7 @@ async function testNotifications() {
 }
 
 async function testGateNotification() {
-  console.log('\n[16] #gate notification — always high priority')
+  console.log('\n[17] #gate notification — always high priority')
   return new Promise<void>((resolve) => {
     const envBandit = {
       ...process.env,
@@ -560,7 +584,7 @@ async function testGateNotification() {
 }
 
 async function testReconnection() {
-  console.log('\n[17] Reconnection — restart ergo and verify rejoin')
+  console.log('\n[18] Reconnection — restart ergo and verify rejoin')
   if (process.env.CI) {
     console.log('    skipped (ergo has no persistent volume in CI — accounts lost on restart)')
     return
@@ -633,6 +657,7 @@ try {
   await testStatus()
   await testListChannels()
   await testTls()
+  await testWebSocket()
   await testNotifications()
   await testGateNotification()
   await testReconnection()
