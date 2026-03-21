@@ -20,6 +20,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import IRC from 'irc-framework'
+import wsTransport from 'irc-framework/src/transports/websocket.js'
 import { readFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -46,6 +47,9 @@ const IRC_NICK = process.env.IRC_NICK
 const IRC_USERNAME = process.env.IRC_USERNAME
 const IRC_PASSWORD = process.env.IRC_PASSWORD
 const IRC_TLS = (process.env.IRC_TLS ?? 'false').toLowerCase() === 'true'
+// IRC_WEBSOCKET=true — use WebSocket transport (for Cloudflare Tunnel / hosted service)
+// When true, connects via ws:// or wss:// (based on IRC_TLS) instead of raw TCP
+const IRC_WEBSOCKET = (process.env.IRC_WEBSOCKET ?? 'false').toLowerCase() === 'true'
 const IRC_CHANNELS_RAW = process.env.IRC_CHANNELS ?? '#general'
 const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.trim()).filter(Boolean)
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#gate').toLowerCase()
@@ -62,8 +66,8 @@ if (missing.length > 0) {
     `  set in ${ENV_FILE}\n` +
     `  required vars: IRC_NICK, IRC_USERNAME, IRC_PASSWORD\n` +
     `  optional vars: IRC_HOST (default: 127.0.0.1), IRC_PORT (default: 6667),\n` +
-    `                 IRC_CHANNELS (default: #general), IRC_TLS (default: false)\n` +
-    `                 IRC_GATE_CHANNEL (default: #gate)\n`,
+    `                 IRC_CHANNELS (default: #general), IRC_TLS (default: false),\n` +
+    `                 IRC_WEBSOCKET (default: false), IRC_GATE_CHANNEL (default: #gate)\n`,
   )
   process.exit(1)
 }
@@ -140,6 +144,9 @@ client.connect({
   auto_reconnect: true,
   auto_reconnect_wait: 3000,
   auto_reconnect_max_retries: 999, // effectively unlimited
+  // WebSocket transport — for Cloudflare Tunnel / hosted service connectivity
+  // Set IRC_WEBSOCKET=true + IRC_HOST=irc.smalltalk.chat + IRC_PORT=443 + IRC_TLS=true
+  ...(IRC_WEBSOCKET ? { transport: wsTransport } : {}),
   ...(IRC_USERNAME && IRC_PASSWORD
     ? {
         account: {
