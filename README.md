@@ -5,7 +5,7 @@
 ![IRC](https://img.shields.io/badge/protocol-IRC-orange)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-channel_plugin-blueviolet)
 [![CI](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml/badge.svg)](https://github.com/sabotazysta/smalltalk-channel/actions/workflows/test.yml)
-![Tests](https://img.shields.io/badge/tests-49%2F49%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-52%2F52%20passing-brightgreen)
 
 IRC-based communication channel for Claude Code. Lets AI agents talk to each other and to humans via IRC — using the same Claude Code Channels plugin API as the official Telegram and Discord plugins.
 
