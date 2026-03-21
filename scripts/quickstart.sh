@@ -34,17 +34,18 @@ echo "Local multi-agent IRC setup. Estimated time: ~3 minutes."
 echo ""
 
 MISSING=()
-command -v docker  >/dev/null 2>&1 || MISSING+=("docker")
-command -v bun     >/dev/null 2>&1 || MISSING+=("bun  (install: curl -fsSL https://bun.sh/install | bash)")
-command -v openssl >/dev/null 2>&1 || MISSING+=("openssl")
-command -v nc      >/dev/null 2>&1 || MISSING+=("nc (netcat)")
+command -v docker    >/dev/null 2>&1 || MISSING+=("docker")
+command -v bun       >/dev/null 2>&1 || MISSING+=("bun  (install: curl -fsSL https://bun.sh/install | bash)")
+command -v openssl   >/dev/null 2>&1 || MISSING+=("openssl")
+command -v nc        >/dev/null 2>&1 || MISSING+=("nc (netcat)")
+command -v htpasswd  >/dev/null 2>&1 || MISSING+=("htpasswd  (install: apt-get install -y apache2-utils  OR  brew install httpd)")
 
 if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo "Missing:"
   for m in "${MISSING[@]}"; do echo "  - $m"; done
   exit 1
 fi
-ok "prerequisites: docker, bun, openssl, nc"
+ok "prerequisites: docker, bun, openssl, nc, htpasswd"
 
 # ── 1. .env ───────────────────────────────────────────────────────────────────
 
@@ -90,8 +91,10 @@ else
   [[ -n "$OPER_PASSWORD" ]] || die "Password cannot be empty"
 
   info "generating bcrypt hash..."
-  HASH=$(docker run --rm ghcr.io/ergochat/ergo:stable genpasswd <<< "$OPER_PASSWORD" 2>/dev/null | grep '^\$2' | head -1)
-  [[ -n "$HASH" ]] || die "Could not generate hash — is Docker running?"
+  # htpasswd (apache2-utils) generates $2y$ bcrypt — Ergo/Go accepts both $2a$ and $2y$
+  # ergo's own genpasswd requires an interactive TTY, so we use htpasswd instead
+  HASH=$(htpasswd -bnBC 12 "" "$OPER_PASSWORD" 2>/dev/null | cut -d: -f2 | tr -d '\n')
+  [[ "$HASH" == \$2* ]] || die "Could not generate bcrypt hash — is apache2-utils installed? (apt-get install -y apache2-utils)"
 
   # Persist to .env
   if grep -q "^OPER_PASSWORD=" .env 2>/dev/null; then
@@ -100,20 +103,24 @@ else
     echo "OPER_PASSWORD=$OPER_PASSWORD" >> .env
   fi
 
-  # Inject hash into ircd.yaml (under opers.admin.password)
-  # The line looks like: password: "$2a$12$..."
-  # sed is simpler but risky — use Python for safety
+  # Inject hash into ircd.yaml (the password line under opers.admin)
+  # Target: any line matching `    password: "$2x$..."` (bcrypt hash)
   python3 - "$HASH" << 'PYEOF'
 import sys, re
 hash_val = sys.argv[1]
 with open('config/ergo/ircd.yaml') as f:
     content = f.read()
-# Replace the password value in the opers section
-content = re.sub(
-    r'(opers:\n(?:[ \t]+\w+:\n)*[ \t]+password:\s*)"[^"]*"',
-    lambda m: m.group(0).rsplit('"', 2)[0] + '"' + hash_val + '"',
-    content
+# Replace the bcrypt password line inside the opers block
+# Matches lines like:   password: "$2b$12$..."
+content, n = re.subn(
+    r'([ \t]+password:\s*)"\$2[abxy]\$[^"]*"',
+    lambda m: m.group(1) + '"' + hash_val + '"',
+    content,
+    count=1
 )
+if n == 0:
+    print("WARNING: could not find password line in ircd.yaml — edit config/ergo/ircd.yaml manually", file=sys.stderr)
+    sys.exit(1)
 with open('config/ergo/ircd.yaml', 'w') as f:
     f.write(content)
 print("ircd.yaml updated")
