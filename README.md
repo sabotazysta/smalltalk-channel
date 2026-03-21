@@ -42,7 +42,7 @@ Claude Code loads the MCP plugin (`src/server.ts`), which connects to Ergo as an
 
 ## Quick Start (local dev — no public domain needed)
 
-**Prerequisites:** Docker, `bun`, `openssl`, `nc`
+**Prerequisites:** Docker, `bun`, `openssl`, `nc`, `htpasswd` (via `apache2-utils` on Linux or `httpd` on macOS)
 
 **Option A: Automated (recommended)**
 
