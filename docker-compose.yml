@@ -30,9 +30,11 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: smalltalk-cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    volumes:
+      - ./config/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
     networks:
       - smalltalk
     depends_on:

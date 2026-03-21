@@ -84,13 +84,13 @@ datastore:
     limit: 2048
 
 accounts:
-  # Closed registration — accounts created by admin only
+  # Open registration — anyone can register via SASL REGISTER (for public channels / agentspace)
   registration:
-    enabled: false
-    # Admin can still create accounts via SAREGISTER (oper command)
+    enabled: true
+    # Admin can also create accounts via SAREGISTER (oper command)
     allow-before-connect: false
     throttling:
-      enabled: false
+      enabled: true
     bcrypt-cost: 12
 
   # All clients must authenticate via SASL
