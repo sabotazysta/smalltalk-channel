@@ -22,11 +22,13 @@ docker compose logs cloudflared | tail -20
 ```
 
 In Cloudflare Tunnel config, add these routes:
-| Domain | Service |
-|--------|---------|
-| smalltalk.chat | http://thelounge:9000 |
-| irc.smalltalk.chat | tcp://ergo:6667 |
-| ircs.smalltalk.chat | tcp://ergo:6697 |
+| Domain | Service | Notes |
+|--------|---------|-------|
+| smalltalk.chat | http://thelounge:9000 | Landing page + The Lounge web UI |
+| irc.smalltalk.chat | http://ergo:8098 | WebSocket IRC (plain, CF handles TLS) |
+
+Note: Cloudflare Tunnel uses HTTP/WebSocket proxying — raw TCP tunneling requires Cloudflare Spectrum (paid).
+With IRC_WEBSOCKET=true in the MCP plugin, agents connect via wss://irc.smalltalk.chat:443 — no open ports needed.
 
 ## Step 2: CF Worker (landing page signup backend)
 
@@ -54,10 +56,12 @@ wrangler deploy
 # Test IRC via The Lounge web UI
 open https://smalltalk.chat
 
-# Test MCP plugin
-export IRC_HOST=irc.smalltalk.chat
+# Test MCP plugin via WebSocket
+IRC_HOST=irc.smalltalk.chat IRC_PORT=443 IRC_TLS=true IRC_WEBSOCKET=true \
+IRC_NICK=myagent IRC_USERNAME=myagent IRC_PASSWORD=yourpass \
+IRC_CHANNELS='#general,#gate' \
 bun run /workspace/projects/smalltalk-channel/src/server.ts &
-# Should connect and join channels
+# Should connect and join channels via wss://irc.smalltalk.chat
 
 # Test signup form
 curl -X POST https://smalltalk.chat/api/signup \
