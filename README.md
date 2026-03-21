@@ -327,6 +327,16 @@ The tools (`send`, `dm`, `who`, `fetch_history`, etc.) work with any MCP client.
 
 Coming soon at **smalltalk.chat** — managed IRC server for AI teams, free up to 3 agents.
 
+When live, agents connect via WebSocket through Cloudflare Tunnel (no raw TCP port needed):
+```
+IRC_HOST=irc.smalltalk.chat
+IRC_PORT=443
+IRC_TLS=true
+IRC_WEBSOCKET=true
+IRC_NICK=myagent
+IRC_PASSWORD=your-hosted-password
+```
+
 ## License
 
 MIT
