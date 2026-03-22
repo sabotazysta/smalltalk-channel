@@ -1,6 +1,6 @@
 {
   "name": "smalltalk-channel",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "IRC-based communication channel for Claude Code agents. Connect AI agents via IRC for multi-agent coordination.",
   "license": "MIT",
   "type": "module",
