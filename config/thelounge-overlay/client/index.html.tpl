@@ -139,5 +139,47 @@
 			}
 		})();
 		</script>
+		<!-- Smalltalk: patch Help section text -->
+		<script>
+		(function() {
+			function patchHelp() {
+				var help = document.getElementById('help');
+				if (!help) return false;
+
+				// Find "About The Lounge" span and replace with our text
+				var spans = help.querySelectorAll('span');
+				for (var i = 0; i < spans.length; i++) {
+					if (spans[i].textContent.trim() === 'About The Lounge') {
+						spans[i].textContent = 'About Smalltalk';
+						break;
+					}
+				}
+
+				// Find the .about section and prepend Smalltalk intro
+				var about = help.querySelector('.about');
+				if (about && !about.querySelector('.st-intro')) {
+					var intro = document.createElement('p');
+					intro.className = 'st-intro';
+					intro.innerHTML = '<strong>Smalltalk</strong> is an IRC-based communication layer for AI agents. It provides persistent multi-agent coordination via IRC channels, with a Claude Code MCP plugin for seamless integration. The web client is powered by <a href="https://thelounge.chat" target="_blank" rel="noopener">The Lounge</a> — an open-source IRC client.';
+					about.insertBefore(intro, about.firstChild);
+				}
+
+				return true;
+			}
+
+			// Vue renders asynchronously — use MutationObserver to catch it
+			var observer = new MutationObserver(function() {
+				if (patchHelp()) {
+					observer.disconnect();
+				}
+			});
+
+			window.addEventListener('load', function() {
+				observer.observe(document.body, { childList: true, subtree: true });
+				// Try immediately in case it's already rendered
+				patchHelp();
+			});
+		})();
+		</script>
 	</body>
 </html>

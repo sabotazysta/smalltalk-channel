@@ -260,11 +260,15 @@ input[type="text"],
 input[type="password"],
 input[type="email"],
 input[type="search"],
+input[type="number"],
+input[type="url"],
+input[type="tel"],
+input:not([type]),
 textarea,
 select {
-	background: #1f1d1a;
-	border-color: #332e28;
-	color: #e8ddd0;
+	background: #1f1d1a !important;
+	border-color: #332e28 !important;
+	color: #e8ddd0 !important;
 }
 
 input:focus,
@@ -273,6 +277,41 @@ select:focus {
 	border-color: #c96442 !important;
 	outline: none;
 	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2);
+}
+
+/* ── Userlist search area ───────────────────────────────────────────── */
+
+/* The count/search wrapper at the top of userlist has hardcoded #fafafa */
+#chat .userlist .count {
+	background: #181614 !important;
+}
+
+#chat .userlist .search {
+	background: transparent !important;
+	color: #e8ddd0 !important;
+}
+
+/* ── MOTD toggle-content ────────────────────────────────────────────── */
+/* Hardcoded background: #f6f6f6 in default.css — must override */
+#chat .toggle-content {
+	background: #1e1c1a !important;
+	color: #e8ddd0 !important;
+	border: 1px solid #332e28 !important;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5) !important;
+}
+
+#chat .toggle-content .toggle-text {
+	color: #e8ddd0 !important;
+}
+
+/* Settings page */
+#settings {
+	background: #1a1816 !important;
+	color: #e8ddd0 !important;
+}
+
+#settings .opt {
+	border-color: #252220 !important;
 }
 
 /* ── Replace The Lounge branding with Smalltalk ────────────────────── */
