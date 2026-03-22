@@ -43,9 +43,9 @@ async function runMcpWithDelay(nick: string, messages: object[], opts: { port?: 
       IRC_PASSWORD: `${nick}-irc-2024!`,
       IRC_HOST: '127.0.0.1',
       IRC_PORT: opts.port ?? '6667',
-      IRC_CHANNELS: '#general,#gate',
+      IRC_CHANNELS: '#general,#urgent',
       IRC_TLS: opts.tls ?? 'false',
-      IRC_GATE_CHANNEL: '#gate',
+      IRC_GATE_CHANNEL: '#urgent',
       ...(opts.websocket ? { IRC_WEBSOCKET: opts.websocket } : {}),
     }
 
@@ -85,9 +85,9 @@ async function runMcp(nick: string, messages: object[], opts: { port?: string; t
       IRC_PASSWORD: `${nick}-irc-2024!`,
       IRC_HOST: '127.0.0.1',
       IRC_PORT: opts.port ?? '6667',
-      IRC_CHANNELS: '#general,#gate',
+      IRC_CHANNELS: '#general,#urgent',
       IRC_TLS: opts.tls ?? 'false',
-      IRC_GATE_CHANNEL: '#gate',
+      IRC_GATE_CHANNEL: '#urgent',
     }
 
     const proc = spawn('bun', ['run', SERVER_PATH], {
@@ -451,9 +451,9 @@ async function testNotifications() {
       IRC_PASSWORD: 'bandit-irc-2024!',
       IRC_HOST: '127.0.0.1',
       IRC_PORT: '6667',
-      IRC_CHANNELS: '#general,#gate',
+      IRC_CHANNELS: '#general,#urgent',
       IRC_TLS: 'false',
-      IRC_GATE_CHANNEL: '#gate',
+      IRC_GATE_CHANNEL: '#urgent',
     }
 
     const proc = spawn('bun', ['run', SERVER_PATH], { env: envBandit, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -486,8 +486,8 @@ async function testNotifications() {
         const scoutEnv = {
           ...process.env,
           IRC_NICK: 'scout', IRC_USERNAME: 'scout', IRC_PASSWORD: 'scout-irc-2024!',
-          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
-          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#urgent',
+          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#urgent',
         }
         const scout = spawn('bun', ['run', SERVER_PATH], { env: scoutEnv, stdio: ['pipe', 'pipe', 'pipe'] })
         setTimeout(() => {
@@ -521,13 +521,13 @@ async function testNotifications() {
 }
 
 async function testGateNotification() {
-  console.log('\n[17] #gate notification — always high priority')
+  console.log('\n[17] #urgent notification — always high priority')
   return new Promise<void>((resolve) => {
     const envBandit = {
       ...process.env,
       IRC_NICK: 'bandit', IRC_USERNAME: 'bandit', IRC_PASSWORD: 'bandit-irc-2024!',
-      IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
-      IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+      IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#urgent',
+      IRC_TLS: 'false', IRC_GATE_CHANNEL: '#urgent',
     }
 
     const proc = spawn('bun', ['run', SERVER_PATH], { env: envBandit, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -552,20 +552,20 @@ async function testGateNotification() {
         params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
       }) + '\n')
 
-      // Forge sends a message to #gate
+      // Forge sends a message to #urgent
       setTimeout(async () => {
         const forgeEnv = {
           ...process.env,
           IRC_NICK: 'forge', IRC_USERNAME: 'forge', IRC_PASSWORD: 'forge-irc-2024!',
-          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#gate',
-          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#gate',
+          IRC_HOST: '127.0.0.1', IRC_PORT: '6667', IRC_CHANNELS: '#general,#urgent',
+          IRC_TLS: 'false', IRC_GATE_CHANNEL: '#urgent',
         }
         const forge = spawn('bun', ['run', SERVER_PATH], { env: forgeEnv, stdio: ['pipe', 'pipe', 'pipe'] })
         setTimeout(() => {
           forge.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
             params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } } }) + '\n')
           forge.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call',
-            params: { name: 'send', arguments: { channel: '#gate', text: gateMsg } } }) + '\n')
+            params: { name: 'send', arguments: { channel: '#urgent', text: gateMsg } } }) + '\n')
           setTimeout(() => forge.kill('SIGTERM'), 2000)
         }, 3500)
 
@@ -575,8 +575,8 @@ async function testGateNotification() {
         const channelNotifs = allOutput.filter((r: any) => r.method === 'notifications/claude/channel')
         const gateNotif = channelNotifs.find((n: any) => JSON.stringify(n).includes(gateMsg))
 
-        ok('#gate message arrives as notification', !!gateNotif)
-        ok('#gate notification has high priority', gateNotif?.params?.meta?.priority === 'high')
+        ok('#urgent message arrives as notification', !!gateNotif)
+        ok('#urgent notification has high priority', gateNotif?.params?.meta?.priority === 'high')
         resolve()
       }, 500)
     }, 3500)
@@ -598,9 +598,9 @@ async function testReconnection() {
       IRC_PASSWORD: 'scout-irc-2024!',
       IRC_HOST: '127.0.0.1',
       IRC_PORT: '6667',
-      IRC_CHANNELS: '#general,#gate',
+      IRC_CHANNELS: '#general,#urgent',
       IRC_TLS: 'false',
-      IRC_GATE_CHANNEL: '#gate',
+      IRC_GATE_CHANNEL: '#urgent',
     }
     const { spawn } = require('child_process')
     const proc = spawn('bun', ['run', SERVER_PATH], { env, stdio: ['pipe', 'pipe', 'pipe'] })

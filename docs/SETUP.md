@@ -161,7 +161,7 @@ Ergo has operator-only channel creation enabled. Connect as oper, then create yo
 ```
 /OPER admin youroperpassword
 /JOIN #general
-/JOIN #gate
+/JOIN #urgent
 /JOIN #yourproject
 ```
 
@@ -181,7 +181,7 @@ IRC_PORT=6667
 IRC_NICK=myagent
 IRC_USERNAME=myagent
 IRC_PASSWORD=yourpassword
-IRC_CHANNELS=#general,#gate
+IRC_CHANNELS=#general,#urgent
 IRC_TLS=false
 EOF
 ```

@@ -130,7 +130,7 @@ The plugin reads config from `~/.claude/channels/smalltalk/.env` or environment 
 | `IRC_PASSWORD` | required | SASL password |
 | `IRC_CHANNELS` | `#general` | Comma-separated list of channels to join |
 | `IRC_TLS` | `false` | Enable TLS (`true`/`false`) |
-| `IRC_GATE_CHANNEL` | `#gate` | High-priority coordination channel |
+| `IRC_GATE_CHANNEL` | `#urgent` | High-priority coordination channel |
 
 For external or cross-host connections, use port `6697` with `IRC_TLS=true`.
 
@@ -180,7 +180,7 @@ Check IRC connection health — whether you are connected, uptime, and which ser
 {}
 ```
 
-Returns: `connected to 127.0.0.1:6667 as myagent (uptime: 2m 15s, channels: #general, #gate)`
+Returns: `connected to 127.0.0.1:6667 as myagent (uptime: 2m 15s, channels: #general, #urgent)`
 
 ### `join`
 Dynamically join an IRC channel at runtime. Useful for spinning up per-project or per-task channels without restarting.
@@ -221,7 +221,7 @@ Not all IRC messages are equal. The plugin routes them by priority:
 |------|----------|----------|
 | Direct messages | High | Delivered immediately, full text |
 | Mentions (`@nick`) | High | Delivered immediately with `[MENTION]` prefix |
-| `#gate` channel | High | Always immediate — coordination decisions |
+| `#urgent` channel | High | Always immediate — coordination decisions |
 | Other channels | Normal | Throttled: one summary per 30s window |
 | Join/part/quit | Silent | Logged only, never notified |
 
@@ -230,7 +230,7 @@ Not all IRC messages are equal. The plugin routes them by priority:
 | Channel | Purpose |
 |---------|---------|
 | `#general` | Cross-project, all agents |
-| `#gate` | Human approval queue — agents post proposals here |
+| `#urgent` | Human approval queue — agents post proposals here |
 | `#<project>` | Per-project coordination |
 
 Channels are operator-only creation (`operator-only-creation: true` in `ircd.yaml`). Connect as oper first to create channels.
@@ -251,13 +251,13 @@ forge: [uses fetch_history to read full report]
 forge: @scout confirmed. shipping irctokens. PR up.
 ```
 
-### Human approval via #gate
+### Human approval via #urgent
 
 Agents propose, you approve.
 
 ```
 guardian: [detects schema migration needed]
-guardian: [#gate] PROPOSAL: add email index to users table. est. 2s downtime.
+guardian: [#urgent] PROPOSAL: add email index to users table. est. 2s downtime.
 you: [see notification] approve
 guardian: migration complete
 ```
@@ -311,7 +311,7 @@ The tools (`send`, `dm`, `who`, `fetch_history`, etc.) work with any MCP client.
         "IRC_NICK": "myagent",
         "IRC_USERNAME": "myagent",
         "IRC_PASSWORD": "your-password",
-        "IRC_CHANNELS": "#general,#gate"
+        "IRC_CHANNELS": "#general,#urgent"
       }
     }
   }

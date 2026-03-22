@@ -6,7 +6,7 @@
  * IRC server connections via ConnectionPool.
  *
  * Notification tiers:
- *   TIER 1 (high)   — mentions, DMs, #gate messages — emit immediately
+ *   TIER 1 (high)   — mentions, DMs, #urgent messages — emit immediately
  *   TIER 2 (normal) — other channel messages — throttled, max 1 per 30s per channel
  *   TIER 3 (silent) — join/part/quit/mode/own messages — never notify
  *
@@ -52,7 +52,7 @@ const IRC_TLS      = (process.env.IRC_TLS      ?? 'false').toLowerCase() === 'tr
 const IRC_WEBSOCKET= (process.env.IRC_WEBSOCKET ?? 'false').toLowerCase() === 'true'
 const IRC_CHANNELS_RAW = process.env.IRC_CHANNELS ?? '#general'
 const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.trim()).filter(Boolean)
-const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#gate').toLowerCase()
+const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#urgent').toLowerCase()
 
 const missing: string[] = []
 if (!IRC_NICK)     missing.push('IRC_NICK')
@@ -226,7 +226,7 @@ function handleMessage(conn: Connection, event: {
   batch?: { id: string; type: string; params: string[] }
 }) {
   const st = getState(conn.config.host)
-  const gateChannel = (conn.config.gateChannel ?? '#gate').toLowerCase()
+  const gateChannel = (conn.config.gateChannel ?? '#urgent').toLowerCase()
   const myNick = conn.config.nick
 
   // CHATHISTORY batch collection
@@ -272,7 +272,7 @@ function handleMessage(conn: Connection, event: {
 
   const channel = event.target
 
-  // TIER 1: #gate
+  // TIER 1: #urgent
   if (targetLower === gateChannel) {
     emitHighPriority({
       content: `${prefix}[${channel}] <${event.nick}> ${event.message}`,
@@ -506,7 +506,7 @@ const mcp = new Server(
       '  HIGH PRIORITY (priority: "high") — act on these:',
       '    - [MENTION] <nick> in #channel: ... — someone mentioned you directly',
       '    - [DM from nick]: ... — a private message sent directly to you',
-      '    - [#gate] <nick> ... — a message in the coordination channel (#gate)',
+      '    - [#urgent] <nick> ... — a message in the coordination channel (#urgent)',
       '    These arrive in full. Address them when you see them.',
       '',
       '  NORMAL (priority: "normal") — informational summaries:',
@@ -552,7 +552,7 @@ const mcp = new Server(
       '',
       'WORKFLOW GUIDANCE:',
       '',
-      '  - High-priority notifications (mentions, DMs, #gate) interrupt your current task.',
+      '  - High-priority notifications (mentions, DMs, #urgent) interrupt your current task.',
       '  - Normal channel summaries are background signal — read them when you have a break.',
       '  - When you do check a channel, use fetch_history rather than waiting for live msgs.',
       '  - IRC is a multi-user environment — always check the nick so you know who is talking.',
@@ -686,7 +686,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           tls: { type: 'boolean', description: 'Use TLS (default: false)' },
           websocket: { type: 'boolean', description: 'Use WebSocket transport (default: false)' },
           channels: { type: 'string', description: 'Comma-separated channels to join (default: #general)' },
-          gate_channel: { type: 'string', description: 'High-priority gate channel (default: #gate)' },
+          gate_channel: { type: 'string', description: 'High-priority gate channel (default: #urgent)' },
         },
         required: ['host', 'nick', 'password'],
       },
@@ -913,7 +913,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const websocket = (args.websocket as boolean | undefined) ?? false
         const channelsRaw = (args.channels as string | undefined) ?? '#general'
         const channels = channelsRaw.split(',').map(c => c.trim()).filter(Boolean)
-        const gateChannel = (args.gate_channel as string | undefined) ?? '#gate'
+        const gateChannel = (args.gate_channel as string | undefined) ?? '#urgent'
 
         await pool.connect({
           host,

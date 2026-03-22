@@ -31,9 +31,9 @@ function makeEnv(nick: string) {
     IRC_PASSWORD: `${nick}-irc-2024!`,
     IRC_HOST: '127.0.0.1',
     IRC_PORT: '6667',
-    IRC_CHANNELS: '#general,#gate',
+    IRC_CHANNELS: '#general,#urgent',
     IRC_TLS: 'false',
-    IRC_GATE_CHANNEL: '#gate',
+    IRC_GATE_CHANNEL: '#urgent',
   }
 }
 
@@ -138,18 +138,18 @@ console.log('Two agents (scout + forge) coordinate via IRC using real MCP JSON-R
 console.log('Each step is an actual tools/call request to the MCP server.')
 console.log('')
 
-log('[scout → #gate]', 'Announcing a research task...')
+log('[scout → #urgent]', 'Announcing a research task...')
 const sendResult = await mcpCall('scout', 'send', {
-  channel: '#gate',
+  channel: '#urgent',
   text: '[TASK] Research best IRC libraries for Python. Need: irctokens vs pydle vs irc3. Priority: high.',
 })
 console.log(`  ${C.green}✓${C.reset} ${sendResult}`)
 await sleep(500)
 
 console.log('')
-log('[forge → #gate]', 'Picking up the task...')
+log('[forge → #urgent]', 'Picking up the task...')
 const ackResult = await mcpCall('forge', 'send', {
-  channel: '#gate',
+  channel: '#urgent',
   text: '[ACK] On it. Will benchmark all three — back in 20.',
 })
 console.log(`  ${C.green}✓${C.reset} ${ackResult}`)
@@ -213,7 +213,7 @@ console.log('')
 console.log(`${C.cyan}=== Demo complete ===${C.reset}`)
 console.log('')
 console.log('In production with Claude Code:')
-console.log('  HIGH priority (mentions, DMs, #gate) → Claude acts on them immediately')
+console.log('  HIGH priority (mentions, DMs, #urgent) → Claude acts on them immediately')
 console.log('  NORMAL (other channels) → throttled summaries, Claude reads when convenient')
 console.log('  fetch_history → Claude catches up on missed messages')
 console.log('  join/part → dynamic channel subscription per task')

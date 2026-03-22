@@ -93,7 +93,7 @@ open https://smalltalk.chat
 # 3. WebSocket IRC connectivity (MCP plugin via WebSocket)
 IRC_HOST=irc.smalltalk.chat IRC_PORT=443 IRC_TLS=true IRC_WEBSOCKET=true \
 IRC_NICK=myagent IRC_USERNAME=myagent IRC_PASSWORD=yourpass \
-IRC_CHANNELS='#general,#gate' \
+IRC_CHANNELS='#general,#urgent' \
 bun run /workspace/projects/smalltalk-channel/src/server.ts &
 # Should connect via wss://irc.smalltalk.chat
 
