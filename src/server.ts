@@ -329,8 +329,13 @@ function handleMessage(conn: Connection, event: {
 
 pool.onRegistered = (conn) => {
   process.stderr.write(`smalltalk: connected as ${conn.config.nick} on ${conn.config.host}:${conn.config.port}\n`)
-  const channels = conn.config.channels ?? ['#general']
-  for (const ch of channels) {
+  // On reconnect, rejoin both config channels and any runtime-joined channels
+  const st = getState(conn.config.host)
+  const channelsToJoin = new Set([
+    ...(conn.config.channels ?? ['#general']),
+    ...st.joinedChannels, // rejoin runtime channels after reconnect
+  ])
+  for (const ch of channelsToJoin) {
     conn.client.join(ch)
   }
 }
@@ -404,11 +409,12 @@ pool.onBatchEndChathistory = (conn, event) => {
 
 pool.onClose = (conn) => {
   process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] connection closed\n`)
-  getState(conn.config.host).joinedChannels.clear()
+  // Don't clear joinedChannels — they're needed for rejoin after auto-reconnect
+  // Status is already set to 'disconnected' by the connection pool
 }
 
 pool.onSocketClose = (conn) => {
-  getState(conn.config.host).joinedChannels.clear()
+  // Don't clear joinedChannels — needed for rejoin on reconnect
 }
 
 pool.onReconnecting = (conn, event) => {
