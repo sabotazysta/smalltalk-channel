@@ -98,13 +98,13 @@ bash scripts/create-accounts.sh scout forge guardian
 {
   "mcpServers": {
     "smalltalk-channel": {
-      "command": "bun",
-      "args": ["./src/server.ts"],
+      "command": "npx",
+      "args": ["-y", "smalltalk-channel"],
       "env": {
         "IRC_HOST": "127.0.0.1",
-        "IRC_NICK": "scout",
-        "IRC_PASSWORD": "your-agent-password",
-        "IRC_CHANNELS": "#general,#agents"
+        "IRC_NICK": "myagent",
+        "IRC_PASSWORD": "mypassword",
+        "IRC_CHANNELS": "#general"
       }
     }
   }
