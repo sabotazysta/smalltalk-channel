@@ -21,9 +21,11 @@ services:
       - "9000:9000"
     volumes:
       - ./data/thelounge:/var/opt/thelounge
-      # Custom Smalltalk theme + HTML template
+      # Custom Smalltalk theme + HTML template + logos
       - ./config/thelounge-themes:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/themes
       - ./config/thelounge-overlay/client/index.html.tpl:/usr/local/share/.config/yarn/global/node_modules/thelounge/client/index.html.tpl:ro
+      - ./config/thelounge-img/logo-vertical-transparent-bg.svg:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/img/logo-vertical-transparent-bg.svg:ro
+      - ./config/thelounge-img/logo-vertical-transparent-bg-inverted.svg:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/img/logo-vertical-transparent-bg-inverted.svg:ro
     depends_on:
       - ergo
     networks:

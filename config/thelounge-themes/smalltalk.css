@@ -281,3 +281,84 @@ select:focus {
 #sidebar .logo-container {
 	display: none;
 }
+
+/* Login screen — show inverted (rust) logo on dark bg */
+#sign-in .logo {
+	display: none !important;
+}
+#sign-in .logo-inverted {
+	display: inline-block !important;
+}
+/* Also target Vue-rendered app login */
+#app .logo {
+	display: none !important;
+}
+#app .logo-inverted {
+	display: inline-block !important;
+}
+
+/* ── MOTD / channel message windows ───────────────────────────────── */
+
+/* The MOTD popup box that appears on first connect */
+.window,
+.window.messages-window {
+	background: #1f1d1a !important;
+	color: #e8ddd0 !important;
+	border-color: #2a2622 !important;
+}
+
+.window .header {
+	background: #181614 !important;
+	border-bottom-color: #252220 !important;
+	color: #e8ddd0 !important;
+}
+
+/* Close/control buttons in windows */
+.window .header .close {
+	color: #a09080;
+}
+.window .header .close:hover {
+	color: #e8ddd0;
+}
+
+/* Text inside MOTD/message windows */
+.window .body,
+.window .content,
+.window #chat-container,
+.window .messages-list {
+	background: #1f1d1a;
+	color: #e8ddd0;
+}
+
+/* ── Login form styling ────────────────────────────────────────────── */
+
+#sign-in {
+	background: #111010;
+}
+
+#sign-in .window {
+	background: #181614 !important;
+	border-color: #2a2622 !important;
+}
+
+#sign-in input[type="text"],
+#sign-in input[type="password"] {
+	background: #1f1d1a !important;
+	border-color: #332e28 !important;
+	color: #e8ddd0 !important;
+}
+
+#sign-in input:focus {
+	border-color: #c96442 !important;
+	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2) !important;
+}
+
+#sign-in .btn {
+	background: #c96442 !important;
+	border-color: #c96442 !important;
+	color: #fff !important;
+}
+
+#sign-in .btn:hover {
+	background: #d97f5a !important;
+}
