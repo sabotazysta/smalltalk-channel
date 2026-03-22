@@ -1,0 +1,283 @@
+/**
+ * Smalltalk theme for The Lounge v4
+ * Dark "comfortable" palette — warm darks, rust accent (#C96442)
+ * Inspired by VS Code Dark / Discord Dark — easy on the eyes
+ */
+
+@import "default.css";
+
+/* ── Core CSS variables ────────────────────────────────────────────── */
+
+:root {
+	--body-color: #e8ddd0;
+	--body-color-muted: #a09080;
+	--link-color: #c9845a;
+	--window-bg-color: #1a1816;
+	--window-heading-color: #a09080;
+	--date-marker-color: #c96442;
+	--unread-marker-color: #c96442;
+	--highlight-bg-color: rgba(201, 100, 66, 0.12);
+	--highlight-border-color: rgba(201, 100, 66, 0.5);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────── */
+
+body {
+	background: #111010;
+	color: var(--body-color);
+	scrollbar-color: #332e28 transparent;
+}
+
+/* ── Loading screen ────────────────────────────────────────────────── */
+
+#loading {
+	background: #111010;
+}
+
+/* Hide Lounge logos entirely */
+#loading .logo,
+#loading .logo-inverted {
+	display: none !important;
+}
+
+/* Replace logo area with Smalltalk wordmark */
+#loading .window .header::before {
+	content: "Smalltalk";
+	display: block;
+	color: #c96442;
+	font-size: 32px;
+	font-weight: 700;
+	letter-spacing: -0.5px;
+	font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
+	text-align: center;
+	margin-bottom: 8px;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+
+#sidebar,
+#footer {
+	background: #181614;
+	border-right-color: #252220;
+}
+
+/* Network name */
+#sidebar .network-name {
+	color: #c96442;
+	font-weight: 600;
+}
+
+/* Channels */
+#sidebar .chan {
+	color: #a09080;
+}
+
+#sidebar .chan:hover {
+	background: #252220;
+	color: #e8ddd0;
+}
+
+#sidebar .chan.active {
+	background: #2a2622;
+	color: #e8ddd0;
+	border-left: 2px solid #c96442;
+}
+
+/* Unread badge */
+#sidebar .badge {
+	background: #c96442;
+	color: #fff;
+}
+
+#sidebar .badge.highlight {
+	background: #b85050;
+}
+
+/* ── Chat header ───────────────────────────────────────────────────── */
+
+#chat .header {
+	background: #181614;
+	border-bottom-color: #252220;
+	color: #e8ddd0;
+}
+
+#chat .header .topic {
+	color: #a09080;
+}
+
+/* ── Messages ──────────────────────────────────────────────────────── */
+
+#chat .content {
+	background: #1a1816;
+}
+
+#chat .msg .time {
+	color: #665a4e;
+}
+
+/* Highlight (mention) */
+#chat .msg.highlight {
+	background: rgba(201, 100, 66, 0.1);
+	border-left: 2px solid rgba(201, 100, 66, 0.5);
+}
+
+/* Join/part in muted */
+#chat .msg[data-type="join"] .content,
+#chat .msg[data-type="part"] .content,
+#chat .msg[data-type="quit"] .content {
+	color: #665a4e;
+}
+
+/* Date separator */
+#chat .date-marker-text {
+	color: #c96442;
+}
+
+#chat .date-marker {
+	border-color: #252220;
+}
+
+/* Unread marker */
+#chat .unread-marker {
+	border-color: #c96442;
+}
+
+/* ── Input area ────────────────────────────────────────────────────── */
+
+#chat .input,
+#form {
+	background: #1f1d1a;
+	border-top-color: #252220;
+}
+
+#form #input {
+	background: #1f1d1a;
+	color: #e8ddd0;
+	caret-color: #c96442;
+}
+
+#form #input::placeholder {
+	color: #665a4e;
+}
+
+/* ── User list ─────────────────────────────────────────────────────── */
+
+#chat .userlist {
+	background: #181614;
+	border-left-color: #252220;
+}
+
+#chat .userlist .count,
+#chat .count::before {
+	background: #1a1816;
+	color: #a09080;
+}
+
+#chat .userlist .user {
+	color: #a09080;
+}
+
+#chat .userlist .user:hover,
+#chat .userlist .user.active {
+	background: #252220;
+	color: #e8ddd0;
+}
+
+/* User mode prefix */
+#chat .user-mode::before {
+	color: #c96442;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+	width: 4px;
+	height: 4px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #332e28;
+	border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #4a4238;
+}
+
+/* ── Links ─────────────────────────────────────────────────────────── */
+
+a {
+	color: #c9845a;
+}
+
+a:hover {
+	color: #d97f5a;
+}
+
+/* ── Windows (settings, etc.) ──────────────────────────────────────── */
+
+.window {
+	background: #1a1816;
+	color: #e8ddd0;
+}
+
+.window .header {
+	background: #181614;
+	border-bottom-color: #252220;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+
+.btn {
+	background: #252220;
+	color: #e8ddd0;
+	border-color: #332e28;
+}
+
+.btn:hover,
+.btn:focus {
+	background: #2e2a26;
+	border-color: #c96442;
+}
+
+.btn-primary {
+	background: #c96442;
+	border-color: #c96442;
+	color: #fff;
+}
+
+.btn-primary:hover {
+	background: #d97f5a;
+}
+
+/* ── Form inputs ───────────────────────────────────────────────────── */
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+textarea,
+select {
+	background: #1f1d1a;
+	border-color: #332e28;
+	color: #e8ddd0;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+	border-color: #c96442 !important;
+	outline: none;
+	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2);
+}
+
+/* ── Hide The Lounge branding where possible ───────────────────────── */
+
+/* The sidebar logo/name area */
+#sidebar .logo-container {
+	display: none;
+}
