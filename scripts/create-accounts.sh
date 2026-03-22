@@ -1,78 +1,117 @@
 #!/usr/bin/env bash
-# create-accounts.sh — Helper for creating IRC accounts on smalltalk ergo
+# create-accounts.sh — Create IRC accounts for agents on the smalltalk Ergo server
 #
-# Usage: ./scripts/create-accounts.sh <username> <password>
+# Usage: ./scripts/create-accounts.sh <nick1> [nick2] [nick3] ...
 #
-# This script documents and automates account creation via netcat.
-# Ergo uses NickServ SAREGISTER (oper-only command) to create accounts
-# when open registration is disabled.
+# Generates a random password for each agent, creates their IRC account,
+# and writes credentials to agent-credentials/<nick>.env
 #
 # Prerequisites:
-#   - ergo container must be running
-#   - You need the oper password set in config/ergo/ircd.yaml
-#   - Plaintext port 6667 must be accessible (exposed on 127.0.0.1)
-#
-# Step 0: Generate admin password hash (one-time setup)
-# -------------------------------------------------------
-# docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
-# Paste the resulting $2a$... hash into config/ergo/ircd.yaml under opers.admin.password
-# Then restart ergo: docker compose restart ergo
+#   - ergo container must be running (docker compose up -d)
+#   - OPER_PASSWORD set in .env or environment
+#   - Plaintext port 6667 accessible on 127.0.0.1
 
 set -euo pipefail
 
-USERNAME="${1:-}"
-PASSWORD="${2:-}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then
-    echo "Usage: $0 <username> <password>"
-    echo ""
-    echo "Example: $0 agent-alice hunter2"
-    exit 1
-fi
-
-# Load .env from project root if OPER_PASSWORD not set
-if [[ -z "${OPER_PASSWORD:-}" && -f "$(dirname "$0")/../.env" ]]; then
-    source "$(dirname "$0")/../.env" 2>/dev/null || true
+# Load .env if OPER_PASSWORD not set
+if [[ -z "${OPER_PASSWORD:-}" && -f "$PROJECT_ROOT/.env" ]]; then
+    source "$PROJECT_ROOT/.env" 2>/dev/null || true
 fi
 
 if [[ -z "${OPER_PASSWORD:-}" ]]; then
     echo "ERROR: OPER_PASSWORD not set."
     echo "  Set it in your .env file: OPER_PASSWORD=youroperpassword"
-    echo "  Or pass it directly: OPER_PASSWORD=yourpassword $0 <username> <password>"
+    exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $0 <nick1> [nick2] [nick3] ..."
+    echo ""
+    echo "Example: $0 scout forge guardian"
     exit 1
 fi
 
 IRC_HOST="${IRC_HOST:-127.0.0.1}"
 IRC_PORT="${IRC_PORT:-6667}"
 
-echo "Creating account '$USERNAME' on $IRC_HOST:$IRC_PORT ..."
-echo ""
-echo "Commands being sent:"
-echo "  NICK bandit-setup"
-echo "  USER bandit-setup 0 * :Setup Bot"
-echo "  OPER admin <oper-password>"
-echo "  SAREGISTER $USERNAME $PASSWORD"
-echo "  QUIT"
+CREDS_DIR="$PROJECT_ROOT/agent-credentials"
+mkdir -p "$CREDS_DIR"
+
+create_account() {
+    local NICK="$1"
+    local PASS="$2"
+
+    {
+        echo "NICK setup-$$"
+        echo "USER setup-$$ 0 * :Setup"
+        sleep 1
+        echo "OPER admin $OPER_PASSWORD"
+        sleep 0.5
+        echo "NS SAREGISTER $NICK $PASS"
+        sleep 0.5
+        echo "QUIT"
+    } | nc -w 3 "$IRC_HOST" "$IRC_PORT" 2>/dev/null || true
+}
+
+gen_password() {
+    # Generate a 20-char random password (alphanumeric)
+    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20
+}
+
+echo "Creating IRC accounts on $IRC_HOST:$IRC_PORT"
 echo ""
 
-# Use netcat to send IRC commands
-# We add sleeps because ergo needs a moment to process each command
-{
-    echo "NICK bandit-setup"
-    echo "USER bandit-setup 0 * :Setup Bot"
-    sleep 1
-    echo "OPER admin $OPER_PASSWORD"
-    sleep 0.5
-    echo "SAREGISTER $USERNAME $PASSWORD"
-    sleep 0.5
-    echo "QUIT"
-} | nc -w 3 "$IRC_HOST" "$IRC_PORT" 2>/dev/null || true
+CREATED=()
+FAILED=()
+
+for NICK in "$@"; do
+    PASS=$(gen_password)
+    echo -n "  $NICK ... "
+
+    create_account "$NICK" "$PASS"
+
+    # Write credentials file
+    cat > "$CREDS_DIR/$NICK.env" <<EOF
+IRC_HOST=$IRC_HOST
+IRC_PORT=6667
+IRC_TLS=false
+IRC_NICK=$NICK
+IRC_USERNAME=$NICK
+IRC_PASSWORD=$PASS
+IRC_CHANNELS=#general
+EOF
+
+    echo "✅  (pass: $PASS)"
+    CREATED+=("$NICK")
+done
 
 echo ""
-echo "Done. If no errors appeared above, account '$USERNAME' was created."
+echo "════════════════════════════════════════"
+echo "✅ Created ${#CREATED[@]} account(s)"
 echo ""
-echo "To verify, you can connect with an IRC client:"
-echo "  Server: $IRC_HOST:$IRC_PORT (plaintext) or :6697 (TLS)"
-echo "  SASL PLAIN: username=$USERNAME, password=$PASSWORD"
+echo "Credentials written to: agent-credentials/"
 echo ""
-echo "The Lounge will prompt for these credentials when adding a network."
+echo "Load into Claude Code agent via .mcp.json:"
+echo ""
+echo '  {
+    "mcpServers": {
+      "smalltalk-channel": {
+        "command": "npx",
+        "args": ["-y", "smalltalk-channel"],
+        "env": {
+          "IRC_HOST": "127.0.0.1",
+          "IRC_NICK": "<nick>",
+          "IRC_PASSWORD": "<password>",
+          "IRC_CHANNELS": "#general"
+        }
+      }
+    }
+  }'
+echo ""
+echo "Or source the credentials file in your agent's environment:"
+echo "  source agent-credentials/<nick>.env"
+echo ""
+echo "The Lounge web UI: http://localhost:9000"
