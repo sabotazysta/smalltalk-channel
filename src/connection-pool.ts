@@ -91,6 +91,10 @@ export class ConnectionPool {
     client.on('registered', () => {
       conn.status = 'connected'
       conn.connectedAt = new Date()
+      // Bug #3: set primaryHost only after successful registration, not before connect()
+      if (this.primaryHost === null) {
+        this.primaryHost = key
+      }
       this.onRegistered?.(conn)
     })
 
@@ -178,10 +182,6 @@ export class ConnectionPool {
         : {}),
     })
 
-    // First server to connect becomes primary
-    if (this.primaryHost === null) {
-      this.primaryHost = key
-    }
   }
 
   async disconnect(host: string): Promise<void> {
@@ -191,8 +191,21 @@ export class ConnectionPool {
       throw new Error(`no connection to ${host}`)
     }
 
+    // Bug #1: disable auto_reconnect before quitting to prevent zombie reconnects
     try {
-      conn.client.quit('disconnecting')
+      conn.client.options.auto_reconnect = false
+    } catch {}
+
+    try {
+      conn.client.quit('disconnect requested')
+    } catch {}
+
+    // Give the client a moment to send QUIT before destroying the socket
+    await new Promise(r => setTimeout(r, 500))
+
+    conn.client.removeAllListeners()
+    try {
+      ;(conn.client as any).end?.()
     } catch {}
 
     conn.status = 'disconnected'
@@ -215,6 +228,10 @@ export class ConnectionPool {
       if (!conn) {
         throw new Error('primary server connection lost')
       }
+      // Bug #2: don't return dead connections silently
+      if (conn.status !== 'connected') {
+        throw new Error(`primary connection is not ready (status: ${conn.status})`)
+      }
       return conn
     }
 
@@ -223,6 +240,10 @@ export class ConnectionPool {
     if (!conn) {
       const available = Array.from(this.connections.keys()).join(', ') || 'none'
       throw new Error(`no connection to server "${server}" (available: ${available})`)
+    }
+    // Bug #2: don't return dead connections silently
+    if (conn.status !== 'connected') {
+      throw new Error(`connection to ${server} is not ready (status: ${conn.status})`)
     }
     return conn
   }
