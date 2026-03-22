@@ -70,6 +70,7 @@
 				<div id="loading-status-container">
 					<img src="img/logo-vertical-transparent-bg.svg" class="logo" alt="" width="256" height="170" style="display:none">
 					<img src="img/logo-vertical-transparent-bg-inverted.svg" class="logo-inverted" alt="" width="256" height="170" style="display:none">
+				<img src="img/smalltalk-logo.png?v=<%- cacheBust %>" id="st-logo" alt="smalltalk" width="256" height="170" style="display:none">
 					<p id="loading-page-message">Smalltalk requires a modern browser with JavaScript enabled.</p>
 				</div>
 				<div id="loading-reload-container">

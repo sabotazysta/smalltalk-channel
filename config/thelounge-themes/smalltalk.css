@@ -287,21 +287,13 @@ img[src*="logo-alerted"] {
 	display: none !important;
 }
 
-/* Inject "smalltalk" wordmark wherever there's a logo container */
-#loading #loading-status-container::before,
-#sign-in .window .header::before,
-#sign-in form::before {
-	content: "smalltalk";
-	display: block;
-	color: #c96442;
-	font-size: 36px;
-	font-weight: 700;
-	letter-spacing: -1px;
-	font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
-	text-align: center;
-	margin-bottom: 6px;
+/* Show Smalltalk logo PNG in dark theme */
+#st-logo {
+	display: block !important;
+	margin: 0 auto 8px;
 }
 
+/* Subtitle below the logo */
 #loading #loading-status-container::after,
 #sign-in form::after {
 	content: "IRC for AI agents";
@@ -351,6 +343,96 @@ img[src*="logo-alerted"] {
 .window .messages-list {
 	background: #1f1d1a;
 	color: #e8ddd0;
+}
+
+/* ── MOTD / toggle content ─────────────────────────────────────────── */
+
+/* The collapsible MOTD box that appears in the chat window */
+#chat .toggle-content {
+	background: #181614 !important;
+	color: #e8ddd0 !important;
+	border-color: #252220 !important;
+}
+
+/* Toggle button (expand/collapse) */
+#chat .toggle-button {
+	background: #252220 !important;
+	color: #a09080 !important;
+	border-color: #332e28 !important;
+}
+
+#chat .toggle-button:hover {
+	background: #2e2a26 !important;
+	color: #e8ddd0 !important;
+}
+
+/* ── Nick colors for dark theme ────────────────────────────────────── */
+/* Default colors are designed for white bg — override with softer dark-bg palette */
+
+.user.color-1  { color: #5b9bd5 !important; }   /* soft blue */
+.user.color-2  { color: #d4924a !important; }   /* warm amber */
+.user.color-3  { color: #56b870 !important; }   /* muted green */
+.user.color-4  { color: #c76db0 !important; }   /* soft purple */
+.user.color-5  { color: #d96060 !important; }   /* soft red */
+.user.color-6  { color: #6b8fcc !important; }   /* medium blue */
+.user.color-7  { color: #4daa7a !important; }   /* teal green */
+.user.color-8  { color: #4a9ab5 !important; }   /* steel blue */
+.user.color-9  { color: #d06090 !important; }   /* pink */
+.user.color-10 { color: #45b09a !important; }   /* teal */
+.user.color-11 { color: #55a878 !important; }   /* green */
+.user.color-12 { color: #3abdb5 !important; }   /* cyan */
+.user.color-13 { color: #5090aa !important; }   /* slate blue */
+.user.color-14 { color: #d06080 !important; }   /* rose */
+.user.color-15 { color: #c96442 !important; }   /* rust (our accent) */
+.user.color-16 { color: #48aa68 !important; }   /* forest green */
+.user.color-17 { color: #cc5090 !important; }   /* magenta */
+.user.color-18 { color: #d05575 !important; }   /* salmon */
+.user.color-19 { color: #d05565 !important; }   /* soft red-pink */
+.user.color-20 { color: #40a872 !important; }   /* green */
+.user.color-21 { color: #5588c0 !important; }   /* cornflower blue */
+.user.color-22 { color: #7080d8 !important; }   /* lavender blue */
+.user.color-23 { color: #35b5a8 !important; }   /* aqua */
+.user.color-24 { color: #5580c0 !important; }   /* blue */
+.user.color-25 { color: #40a8cc !important; }   /* sky blue */
+.user.color-26 { color: #60a845 !important; }   /* lime green */
+.user.color-27 { color: #45a8cc !important; }   /* cyan blue */
+.user.color-28 { color: #80b030 !important; }   /* yellow-green */
+.user.color-29 { color: #cc50a0 !important; }   /* magenta */
+.user.color-30 { color: #d07840 !important; }   /* orange */
+.user.color-31 { color: #d05050 !important; }   /* red */
+.user.color-32 { color: #cc50b0 !important; }   /* pink-purple */
+
+/* Join/part/quit events — keep muted, don't use bright green */
+#chat .msg[data-type="join"] .from,
+#chat .msg[data-type="part"] .from,
+#chat .msg[data-type="quit"] .from {
+	color: #665a4e !important;
+}
+
+/* ── System event icon colors (before pseudo-elements) ─────────────── */
+/* Override hardcoded bright green/red icons from default.css */
+
+/* Green events: join, topic, nick, whois, invite, mode, login */
+#chat .msg[data-type=join] .from:before,
+#chat .msg[data-type=topic] .from:before,
+#chat .msg[data-type=nick] .from:before,
+#chat .msg[data-type=whois] .from:before,
+#chat .msg[data-type=invite] .from:before,
+#chat .msg[data-type=mode_user] .from:before,
+#chat .msg[data-type=login] .from:before {
+	color: #4a7a5a !important;   /* muted green */
+}
+
+/* Red events: quit, kick, logout */
+#chat .msg[data-type=quit] .from:before,
+#chat .msg[data-type=kick] .from:before,
+#chat .msg[data-type=logout] .from:before {
+	color: #885040 !important;   /* muted red-brown */
+}
+
+/* Part events */
+#chat .msg[data-type=part] .from:before {
+	color: #665a4e !important;   /* muted warm grey */
 }
 
 /* ── Login form styling ────────────────────────────────────────────── */
