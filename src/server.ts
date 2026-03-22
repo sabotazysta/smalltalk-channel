@@ -2,15 +2,17 @@
 /**
  * smalltalk-channel — IRC bridge for Claude Code.
  *
- * MCP server exposing IRC as a Claude channel. Connects to an IRC server via
- * irc-framework, joins configured channels, and bridges inbound messages as
- * MCP notifications with smart priority tiers:
+ * MCP server exposing IRC as a Claude channel. Supports multiple simultaneous
+ * IRC server connections via ConnectionPool.
  *
+ * Notification tiers:
  *   TIER 1 (high)   — mentions, DMs, #gate messages — emit immediately
  *   TIER 2 (normal) — other channel messages — throttled, max 1 per 30s per channel
- *   TIER 3 (silent) — join/part/quit/mode/own messages — buffer only, never notify
+ *   TIER 3 (silent) — join/part/quit/mode/own messages — never notify
  *
  * Config lives in ~/.claude/channels/smalltalk/.env or environment variables.
+ * Env vars configure the default (primary) server. Additional servers can be
+ * added at runtime via the connect tool.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -19,11 +21,10 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import IRC from 'irc-framework'
-import wsTransport from 'irc-framework/src/transports/websocket.js'
 import { readFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { ConnectionPool, type Connection } from './connection-pool.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -32,8 +33,6 @@ import { join } from 'path'
 const STATE_DIR = join(homedir(), '.claude', 'channels', 'smalltalk')
 const ENV_FILE = join(STATE_DIR, '.env')
 
-// Load ~/.claude/channels/smalltalk/.env — real env wins.
-// Plugin-spawned servers don't inherit an env block, so the .env is essential.
 try {
   for (const line of readFileSync(ENV_FILE, 'utf8').split('\n')) {
     const m = line.match(/^(\w+)=(.*)$/)
@@ -41,78 +40,42 @@ try {
   }
 } catch {}
 
-const IRC_HOST = process.env.IRC_HOST ?? '127.0.0.1'
-const IRC_PORT = parseInt(process.env.IRC_PORT ?? '6667', 10)
-const IRC_NICK = process.env.IRC_NICK
+const IRC_HOST     = process.env.IRC_HOST     ?? '127.0.0.1'
+const IRC_PORT     = parseInt(process.env.IRC_PORT ?? '6667', 10)
+const IRC_NICK     = process.env.IRC_NICK
 const IRC_USERNAME = process.env.IRC_USERNAME
 const IRC_PASSWORD = process.env.IRC_PASSWORD
-const IRC_TLS = (process.env.IRC_TLS ?? 'false').toLowerCase() === 'true'
-// IRC_WEBSOCKET=true — use WebSocket transport (for Cloudflare Tunnel / hosted service)
-// When true, connects via ws:// or wss:// (based on IRC_TLS) instead of raw TCP
-const IRC_WEBSOCKET = (process.env.IRC_WEBSOCKET ?? 'false').toLowerCase() === 'true'
+const IRC_TLS      = (process.env.IRC_TLS      ?? 'false').toLowerCase() === 'true'
+const IRC_WEBSOCKET= (process.env.IRC_WEBSOCKET ?? 'false').toLowerCase() === 'true'
 const IRC_CHANNELS_RAW = process.env.IRC_CHANNELS ?? '#general'
 const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.trim()).filter(Boolean)
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#gate').toLowerCase()
 
-// Validate required vars
 const missing: string[] = []
-if (!IRC_NICK) missing.push('IRC_NICK')
+if (!IRC_NICK)     missing.push('IRC_NICK')
 if (!IRC_USERNAME) missing.push('IRC_USERNAME')
 if (!IRC_PASSWORD) missing.push('IRC_PASSWORD')
 
-if (missing.length > 0) {
-  process.stderr.write(
-    `smalltalk channel: missing required config: ${missing.join(', ')}\n` +
-    `  set in ${ENV_FILE}\n` +
-    `  required vars: IRC_NICK, IRC_USERNAME, IRC_PASSWORD\n` +
-    `  optional vars: IRC_HOST (default: 127.0.0.1), IRC_PORT (default: 6667),\n` +
-    `                 IRC_CHANNELS (default: #general), IRC_TLS (default: false),\n` +
-    `                 IRC_WEBSOCKET (default: false), IRC_GATE_CHANNEL (default: #gate)\n`,
-  )
-  process.exit(1)
-}
-
 // ---------------------------------------------------------------------------
-// Notification throttle state (Tier 2)
+// Per-connection state
 // ---------------------------------------------------------------------------
 
-const THROTTLE_WINDOW_MS = 30_000 // 30 seconds
+const THROTTLE_WINDOW_MS = 30_000
 
 type ThrottleEntry = {
   lastNotified: number
-  buffered: number           // count of messages buffered since last notification
-  lastNick: string           // nick of the most recent buffered message
-  lastText: string           // text of the most recent buffered message
+  buffered: number
+  lastNick: string
+  lastText: string
   bufferTimeout: ReturnType<typeof setTimeout> | null
 }
 
-const channelThrottle = new Map<string, ThrottleEntry>()
-
-// ---------------------------------------------------------------------------
-// IRC client
-// ---------------------------------------------------------------------------
-
-const client = new IRC.Client()
-
-// Request IRCv3 capabilities needed for CHATHISTORY and batched responses
-client.requestCap(['batch', 'draft/chathistory', 'server-time', 'message-tags'])
-
-// Track joined channels so we only forward messages from channels we're in
-const joinedChannels = new Set<string>()
-
-// Track users in channels (from NAMES responses)
-const channelUsers = new Map<string, Set<string>>()
-
-// Pending NAMES response collectors
 type PendingNames = {
   users: string[]
   resolve: (users: string[]) => void
   timer: ReturnType<typeof setTimeout>
 }
-const pendingNames = new Map<string, PendingNames>()
 
-// Pending CHATHISTORY response collectors
-// key: channel name (lowercased)
 type HistoryMessage = { ts: string; nick: string; text: string }
 type PendingHistory = {
   batchId: string | null
@@ -121,200 +84,83 @@ type PendingHistory = {
   reject: (err: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
-const pendingHistory = new Map<string, PendingHistory>()
 
-// Map batch ID -> channel key (for looking up pendingHistory during privmsg events)
-const batchIdToChannel = new Map<string, string>()
-
-// Pending TOPIC response collectors
 type PendingTopic = {
   resolve: (topic: string) => void
   timer: ReturnType<typeof setTimeout>
 }
-const pendingTopics = new Map<string, PendingTopic>()
 
-client.connect({
-  host: IRC_HOST,
-  port: IRC_PORT,
-  nick: IRC_NICK!,
-  username: IRC_USERNAME!,
-  gecos: 'Claude Code smalltalk bridge',
-  tls: IRC_TLS,
-  // Reconnect automatically on disconnect, with exponential backoff
-  auto_reconnect: true,
-  auto_reconnect_wait: 3000,
-  auto_reconnect_max_retries: 999, // effectively unlimited
-  // WebSocket transport — for Cloudflare Tunnel / hosted service connectivity
-  // Set IRC_WEBSOCKET=true + IRC_HOST=irc.smalltalk.chat + IRC_PORT=443 + IRC_TLS=true
-  ...(IRC_WEBSOCKET ? { transport: wsTransport } : {}),
-  ...(IRC_USERNAME && IRC_PASSWORD
-    ? {
-        account: {
-          account: IRC_USERNAME,
-          password: IRC_PASSWORD,
-        },
-      }
-    : {}),
-})
+type ConnState = {
+  joinedChannels: Set<string>
+  channelUsers: Map<string, Set<string>>
+  pendingNames: Map<string, PendingNames>
+  pendingHistory: Map<string, PendingHistory>
+  batchIdToChannel: Map<string, string>
+  pendingTopics: Map<string, PendingTopic>
+  channelThrottle: Map<string, ThrottleEntry>
+}
 
-client.on('registered', () => {
-  ircConnected = true
-  connectedAt = new Date()
-  connectedToHost = `${IRC_HOST}:${IRC_PORT}`
-  process.stderr.write(`smalltalk channel: connected as ${IRC_NICK} on ${IRC_HOST}:${IRC_PORT}\n`)
-  for (const ch of IRC_CHANNELS) {
-    client.join(ch)
-  }
-})
+const connStates = new Map<string, ConnState>()
 
-client.on('join', (event: { channel: string; nick: string }) => {
-  if (event.nick === IRC_NICK) {
-    const ch = event.channel.toLowerCase()
-    joinedChannels.add(ch)
-    process.stderr.write(`smalltalk channel: joined ${event.channel}\n`)
-  }
-  // Tier 3: join events — never notify
-})
+function normalizeHost(host: string): string {
+  return host.replace(/^wss?:\/\//i, '').replace(/^ircs?:\/\//i, '').toLowerCase()
+}
 
-client.on('part', (event: { channel: string; nick: string }) => {
-  if (event.nick === IRC_NICK) {
-    joinedChannels.delete(event.channel.toLowerCase())
-  }
-  // Tier 3: part events — never notify
-})
-
-client.on('quit', (_event: { nick: string; message: string }) => {
-  // Tier 3: quit events — never notify
-})
-
-// Collect NAMES responses for the who tool
-client.on('userlist', (event: { channel: string; users: Array<{ nick: string; modes: string[] }> }) => {
-  const ch = event.channel.toLowerCase()
-  const users = new Set(event.users.map((u: { nick: string }) => u.nick))
-  channelUsers.set(ch, users)
-
-  const pending = pendingNames.get(ch)
-  if (pending) {
-    clearTimeout(pending.timer)
-    pendingNames.delete(ch)
-    pending.resolve(event.users.map((u: { nick: string }) => u.nick))
-  }
-})
-
-client.on('kick', (event: { channel: string; kicked: string }) => {
-  if (event.kicked === IRC_NICK) {
-    joinedChannels.delete(event.channel.toLowerCase())
-  }
-  // Tier 3: kick events — never notify
-})
-
-// Collect TOPIC responses (332 on join, 332 on TOPIC request, 333 topicsetby)
-client.on('topic', (event: { channel: string; topic: string; nick?: string }) => {
-  const ch = event.channel.toLowerCase()
-  const pending = pendingTopics.get(ch)
-  if (pending) {
-    clearTimeout(pending.timer)
-    pendingTopics.delete(ch)
-    pending.resolve(event.topic)
-  }
-})
-
-let ircConnected = false
-let connectedAt: Date | null = null
-let connectedToHost = ''
-
-client.on('reconnecting', (event: { attempt: number; max_retries: number; wait: number }) => {
-  process.stderr.write(
-    `smalltalk channel: reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
-  )
-})
-
-client.on('close', () => {
-  process.stderr.write('smalltalk channel: IRC connection closed\n')
-  ircConnected = false
-  joinedChannels.clear()
-  // Fallback: if auto_reconnect doesn't trigger (e.g. too-fast disconnect),
-  // schedule a manual reconnect after 5s
-  setTimeout(() => {
-    if (!ircConnected) {
-      process.stderr.write('smalltalk channel: triggering manual reconnect\n')
-      client.connect({
-        host: IRC_HOST,
-        port: IRC_PORT,
-        nick: IRC_NICK!,
-        username: IRC_USERNAME!,
-        gecos: 'Claude Code smalltalk bridge',
-        tls: IRC_TLS,
-        auto_reconnect: true,
-        auto_reconnect_wait: 3000,
-        auto_reconnect_max_retries: 999,
-        ...(IRC_USERNAME && IRC_PASSWORD
-          ? { account: { account: IRC_USERNAME, password: IRC_PASSWORD } }
-          : {}),
-      })
+function getState(host: string): ConnState {
+  const key = normalizeHost(host)
+  let s = connStates.get(key)
+  if (!s) {
+    s = {
+      joinedChannels: new Set(),
+      channelUsers: new Map(),
+      pendingNames: new Map(),
+      pendingHistory: new Map(),
+      batchIdToChannel: new Map(),
+      pendingTopics: new Map(),
+      channelThrottle: new Map(),
     }
-  }, 5000)
-})
-
-client.on('socket close', () => {
-  ircConnected = false
-  joinedChannels.clear()
-})
-
-// irc-framework processes BATCH internally: emits 'batch start', then fires
-// all buffered commands as normal events (with event.batch set), then 'batch end'.
-// We intercept chathistory batches by watching batch start/end and the batch
-// field on privmsg events.
-
-client.on('batch start chathistory', (event: { id: string; type: string; params: string[] }) => {
-  // params[0] is the channel for chathistory batches
-  const channel = (event.params[0] ?? '').toLowerCase()
-  const pending = pendingHistory.get(channel)
-  if (pending) {
-    pending.batchId = event.id
-    batchIdToChannel.set(event.id, channel)
+    connStates.set(key, s)
   }
-})
+  return s
+}
 
-client.on('batch end chathistory', (event: { id: string; type: string; params: string[] }) => {
-  const channel = batchIdToChannel.get(event.id)
-  batchIdToChannel.delete(event.id)
-  if (!channel) return
+// ---------------------------------------------------------------------------
+// Connection pool
+// ---------------------------------------------------------------------------
 
-  const pending = pendingHistory.get(channel)
-  if (!pending) return
+const pool = new ConnectionPool()
 
-  clearTimeout(pending.timer)
-  pendingHistory.delete(channel)
-  pending.resolve(pending.messages)
-})
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-// Safely extract ISO timestamp from an IRC event's time field.
-// irc-framework may return a Date, a string, or null depending on the context
-// (e.g. CHATHISTORY batch events pass the raw @time tag as a string).
 function getEventTs(time: Date | string | null | undefined): string {
   if (!time) return new Date().toISOString()
   if (time instanceof Date) return time.toISOString()
-  // Already an ISO string from @time tag
   if (typeof time === 'string') return time
   return new Date().toISOString()
 }
 
-// Check if a message text contains a mention of our nick.
-// Handles bare nick, @nick, and nick followed by punctuation (common IRC convention).
-function isMention(text: string): boolean {
-  if (!IRC_NICK) return false
-  const nick = IRC_NICK.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // escape regex special chars
-  return new RegExp(`(?:^|\\s|@)${nick}(?:\\s|[,:!?]|$)`, 'i').test(text)
+function isMention(text: string, nick: string): boolean {
+  const escaped = nick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|\\s|@)${escaped}(?:\\s|[,:!?]|$)`, 'i').test(text)
 }
 
-// Emit a Tier 1 (high priority) MCP notification immediately.
+function serverPrefix(conn: Connection): string {
+  return pool.size() > 1 ? `[${normalizeHost(conn.config.host)}] ` : ''
+}
+
+// ---------------------------------------------------------------------------
+// MCP notification emitters
+// ---------------------------------------------------------------------------
+
 function emitHighPriority(opts: {
   content: string
   channel: string
   nick: string
   ts: string
   mention: boolean
+  source?: string
 }) {
   void mcp.notification({
     method: 'notifications/claude/channel',
@@ -326,13 +172,13 @@ function emitHighPriority(opts: {
         ts: opts.ts,
         priority: 'high',
         mention: opts.mention ? 'true' : 'false',
+        ...(opts.source ? { source: opts.source } : {}),
       },
     },
   })
 }
 
-// Emit a Tier 2 (normal, throttled) batch summary notification.
-function emitThrottledSummary(channel: string, entry: ThrottleEntry) {
+function emitThrottledSummary(channel: string, entry: ThrottleEntry, source?: string) {
   const count = entry.buffered
   const preview = entry.lastText.length > 60
     ? entry.lastText.slice(0, 57) + '...'
@@ -352,6 +198,7 @@ function emitThrottledSummary(channel: string, entry: ThrottleEntry) {
         ts: new Date().toISOString(),
         priority: 'normal',
         mention: 'false',
+        ...(source ? { source } : {}),
       },
     },
   })
@@ -361,24 +208,28 @@ function emitThrottledSummary(channel: string, entry: ThrottleEntry) {
   entry.bufferTimeout = null
 }
 
-// Handle inbound channel messages (also catches batched CHATHISTORY privmsgs)
-client.on('privmsg', (event: {
+// ---------------------------------------------------------------------------
+// Message routing
+// ---------------------------------------------------------------------------
+
+function handleMessage(conn: Connection, event: {
   target: string
   nick: string
   message: string
   time: Date | string | null
   batch?: { id: string; type: string; params: string[] }
-}) => {
-  // ---------------------------------------------------------------------------
-  // CHATHISTORY batch collection — always handled first, regardless of tier logic
-  // ---------------------------------------------------------------------------
+}) {
+  const st = getState(conn.config.host)
+  const gateChannel = (conn.config.gateChannel ?? '#gate').toLowerCase()
+  const myNick = conn.config.nick
+
+  // CHATHISTORY batch collection
   if (event.batch?.type === 'chathistory') {
-    const batchChannel = batchIdToChannel.get(event.batch.id)
+    const batchChannel = st.batchIdToChannel.get(event.batch.id)
     if (batchChannel) {
-      const pending = pendingHistory.get(batchChannel)
+      const pending = st.pendingHistory.get(batchChannel)
       if (pending) {
-        const ts = getEventTs(event.time)
-        pending.messages.push({ ts, nick: event.nick, text: event.message })
+        pending.messages.push({ ts: getEventTs(event.time), nick: event.nick, text: event.message })
       }
       return
     }
@@ -388,114 +239,206 @@ client.on('privmsg', (event: {
   const targetLower = event.target.toLowerCase()
   const isChannelMsg = event.target.startsWith('#') || event.target.startsWith('&')
   const isDM = !isChannelMsg
+  const prefix = serverPrefix(conn)
+  const source = normalizeHost(conn.config.host)
 
-  // ---------------------------------------------------------------------------
-  // TIER 3: Own messages — always silent
-  // ---------------------------------------------------------------------------
-  if (event.nick === IRC_NICK) return
+  // TIER 3: Own messages
+  if (event.nick === myNick) return
 
-  // ---------------------------------------------------------------------------
-  // TIER 1: Direct messages (PRIVMSG to our nick, not a channel)
-  // ---------------------------------------------------------------------------
+  // TIER 1: Direct messages
   if (isDM) {
     emitHighPriority({
-      content: `[DM from ${event.nick}]: ${event.message}`,
+      content: `${prefix}[DM from ${event.nick}]: ${event.message}`,
       channel: 'dm',
       nick: event.nick,
       ts,
       mention: false,
+      source,
     })
     return
   }
 
-  // From here: channel message. Only forward from channels we've joined.
-  if (!joinedChannels.has(targetLower)) return
+  // Only forward from joined channels
+  if (!st.joinedChannels.has(targetLower)) return
 
   const channel = event.target
 
-  // ---------------------------------------------------------------------------
-  // TIER 1: #gate channel — always emit immediately, full content
-  // ---------------------------------------------------------------------------
-  if (targetLower === GATE_CHANNEL) {
+  // TIER 1: #gate
+  if (targetLower === gateChannel) {
     emitHighPriority({
-      content: `[${channel}] <${event.nick}> ${event.message}`,
+      content: `${prefix}[${channel}] <${event.nick}> ${event.message}`,
       channel,
       nick: event.nick,
       ts,
       mention: false,
+      source,
     })
     return
   }
 
-  // ---------------------------------------------------------------------------
-  // TIER 1: Mentions — emit immediately even if the channel is throttled
-  // ---------------------------------------------------------------------------
-  if (isMention(event.message)) {
+  // TIER 1: Mentions
+  if (isMention(event.message, myNick)) {
     emitHighPriority({
-      content: `[MENTION] <${event.nick}> in ${channel}: ${event.message}`,
+      content: `${prefix}[MENTION] <${event.nick}> in ${channel}: ${event.message}`,
       channel,
       nick: event.nick,
       ts,
       mention: true,
+      source,
     })
-    // Do NOT fall through to Tier 2 — mention was already delivered.
-    // The message will also show up via fetch_history if they want context.
     return
   }
 
-  // ---------------------------------------------------------------------------
-  // TIER 2: Normal channel message — throttled, max 1 notification per 30s
-  // ---------------------------------------------------------------------------
+  // TIER 2: Throttled normal messages
   const now = Date.now()
-  let entry = channelThrottle.get(targetLower)
-
+  let entry = st.channelThrottle.get(targetLower)
   if (!entry) {
-    entry = {
-      lastNotified: 0,
-      buffered: 0,
-      lastNick: event.nick,
-      lastText: event.message,
-      bufferTimeout: null,
-    }
-    channelThrottle.set(targetLower, entry)
+    entry = { lastNotified: 0, buffered: 0, lastNick: event.nick, lastText: event.message, bufferTimeout: null }
+    st.channelThrottle.set(targetLower, entry)
   }
 
-  // Update the "most recent buffered message" info
   entry.buffered += 1
   entry.lastNick = event.nick
   entry.lastText = event.message
 
   const timeSinceLast = now - entry.lastNotified
-
   if (timeSinceLast >= THROTTLE_WINDOW_MS) {
-    // Window expired — fire immediately and reset
-    if (entry.bufferTimeout) {
-      clearTimeout(entry.bufferTimeout)
-      entry.bufferTimeout = null
-    }
-    emitThrottledSummary(targetLower, entry)
-  } else {
-    // Within throttle window — schedule a deferred batch notification if not already scheduled.
-    // When the window expires, we fire one summary for everything buffered so far.
-    if (!entry.bufferTimeout) {
-      const delay = THROTTLE_WINDOW_MS - timeSinceLast
-      entry.bufferTimeout = setTimeout(() => {
-        const e = channelThrottle.get(targetLower)
-        if (e && e.buffered > 0) {
-          emitThrottledSummary(targetLower, e)
-        }
-      }, delay)
-    }
-    // else: timeout already scheduled, just let it fire when the window ends
+    if (entry.bufferTimeout) { clearTimeout(entry.bufferTimeout); entry.bufferTimeout = null }
+    emitThrottledSummary(targetLower, entry, source)
+  } else if (!entry.bufferTimeout) {
+    const delay = THROTTLE_WINDOW_MS - timeSinceLast
+    entry.bufferTimeout = setTimeout(() => {
+      const e = st.channelThrottle.get(targetLower)
+      if (e && e.buffered > 0) emitThrottledSummary(targetLower, e, source)
+    }, delay)
   }
-})
+}
+
+// ---------------------------------------------------------------------------
+// Wire pool callbacks
+// ---------------------------------------------------------------------------
+
+pool.onRegistered = (conn) => {
+  process.stderr.write(`smalltalk: connected as ${conn.config.nick} on ${conn.config.host}:${conn.config.port}\n`)
+  const channels = conn.config.channels ?? ['#general']
+  for (const ch of channels) {
+    conn.client.join(ch)
+  }
+}
+
+pool.onMessage = (conn, event) => handleMessage(conn, event)
+
+pool.onJoin = (conn, event) => {
+  if (event.nick === conn.config.nick) {
+    const st = getState(conn.config.host)
+    st.joinedChannels.add(event.channel.toLowerCase())
+    process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] joined ${event.channel}\n`)
+  }
+}
+
+pool.onPart = (conn, event) => {
+  if (event.nick === conn.config.nick) {
+    getState(conn.config.host).joinedChannels.delete(event.channel.toLowerCase())
+  }
+}
+
+pool.onKick = (conn, event) => {
+  if (event.kicked === conn.config.nick) {
+    getState(conn.config.host).joinedChannels.delete(event.channel.toLowerCase())
+  }
+}
+
+pool.onUserlist = (conn, event) => {
+  const st = getState(conn.config.host)
+  const ch = event.channel.toLowerCase()
+  st.channelUsers.set(ch, new Set(event.users.map((u) => u.nick)))
+  const pending = st.pendingNames.get(ch)
+  if (pending) {
+    clearTimeout(pending.timer)
+    st.pendingNames.delete(ch)
+    pending.resolve(event.users.map((u) => u.nick))
+  }
+}
+
+pool.onTopic = (conn, event) => {
+  const st = getState(conn.config.host)
+  const ch = event.channel.toLowerCase()
+  const pending = st.pendingTopics.get(ch)
+  if (pending) {
+    clearTimeout(pending.timer)
+    st.pendingTopics.delete(ch)
+    pending.resolve(event.topic)
+  }
+}
+
+pool.onBatchStartChathistory = (conn, event) => {
+  const st = getState(conn.config.host)
+  const channel = (event.params[0] ?? '').toLowerCase()
+  const pending = st.pendingHistory.get(channel)
+  if (pending) {
+    pending.batchId = event.id
+    st.batchIdToChannel.set(event.id, channel)
+  }
+}
+
+pool.onBatchEndChathistory = (conn, event) => {
+  const st = getState(conn.config.host)
+  const channel = st.batchIdToChannel.get(event.id)
+  st.batchIdToChannel.delete(event.id)
+  if (!channel) return
+  const pending = st.pendingHistory.get(channel)
+  if (!pending) return
+  clearTimeout(pending.timer)
+  st.pendingHistory.delete(channel)
+  pending.resolve(pending.messages)
+}
+
+pool.onClose = (conn) => {
+  process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] connection closed\n`)
+  getState(conn.config.host).joinedChannels.clear()
+}
+
+pool.onSocketClose = (conn) => {
+  getState(conn.config.host).joinedChannels.clear()
+}
+
+pool.onReconnecting = (conn, event) => {
+  process.stderr.write(
+    `smalltalk: [${normalizeHost(conn.config.host)}] reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Auto-connect from env vars
+// ---------------------------------------------------------------------------
+
+if (missing.length === 0) {
+  pool.connect({
+    host: IRC_HOST,
+    port: IRC_PORT,
+    nick: IRC_NICK!,
+    username: IRC_USERNAME!,
+    password: IRC_PASSWORD!,
+    tls: IRC_TLS,
+    websocket: IRC_WEBSOCKET,
+    channels: IRC_CHANNELS,
+    gateChannel: GATE_CHANNEL,
+  }).catch((err: Error) => {
+    process.stderr.write(`smalltalk: auto-connect failed: ${err.message}\n`)
+  })
+} else {
+  process.stderr.write(
+    `smalltalk: no default server configured (missing: ${missing.join(', ')})\n` +
+    `  set in ${ENV_FILE} or use the connect tool to add servers at runtime\n`
+  )
+}
 
 // ---------------------------------------------------------------------------
 // MCP server
 // ---------------------------------------------------------------------------
 
 const mcp = new Server(
-  { name: 'smalltalk', version: '0.1.0' },
+  { name: 'smalltalk', version: '0.2.0' },
   {
     capabilities: { tools: {}, experimental: { 'claude/channel': {} } },
     instructions: [
@@ -541,6 +484,15 @@ const mcp = new Server(
       '  topic — get or set a channel topic. Topics persist and are visible to all members.',
       '    Use to broadcast current task status: topic #project "working on: auth | done: api"',
       '',
+      '  connect — connect to an additional IRC server at runtime.',
+      '',
+      '  disconnect — disconnect from an IRC server.',
+      '',
+      'MULTI-SERVER:',
+      '  When connected to multiple servers, pass server="irc.example.com" to any tool',
+      '  to target a specific server. Omit server to use the primary (first connected) server.',
+      '  Notifications include a server prefix when multiple servers are active.',
+      '',
       'WORKFLOW GUIDANCE:',
       '',
       '  - High-priority notifications (mentions, DMs, #gate) interrupt your current task.',
@@ -559,14 +511,9 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'IRC channel to send to, e.g. "#general"',
-          },
-          text: {
-            type: 'string',
-            description: 'Message text to send',
-          },
+          channel: { type: 'string', description: 'IRC channel to send to, e.g. "#general"' },
+          text: { type: 'string', description: 'Message text to send' },
+          server: { type: 'string', description: 'IRC server host, e.g. "irc.smalltalk.chat". Defaults to primary connection.' },
         },
         required: ['channel', 'text'],
       },
@@ -579,6 +526,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           nick: { type: 'string', description: 'Recipient nick, e.g. "scout"' },
           text: { type: 'string', description: 'Message text' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['nick', 'text'],
       },
@@ -589,10 +537,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'IRC channel to list users in, e.g. "#general"',
-          },
+          channel: { type: 'string', description: 'IRC channel to list users in, e.g. "#general"' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
       },
@@ -606,14 +552,9 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'IRC channel to fetch history for, e.g. "#general"',
-          },
-          limit: {
-            type: 'number',
-            description: 'Number of messages to fetch (default: 50, max: 100)',
-          },
+          channel: { type: 'string', description: 'IRC channel to fetch history for, e.g. "#general"' },
+          limit: { type: 'number', description: 'Number of messages to fetch (default: 50, max: 100)' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
       },
@@ -623,18 +564,16 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       description: 'List IRC channels you are currently joined to.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          server: { type: 'string', description: 'IRC server host. Omit to list all channels across all servers.' },
+        },
         required: [],
       },
     },
     {
       name: 'status',
-      description: 'Check the IRC connection status — whether you are connected, uptime, and which server.',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
+      description: 'Check the IRC connection status — connected servers, uptime, and channels.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
     },
     {
       name: 'join',
@@ -642,10 +581,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'Channel to join, e.g. "#project-x"',
-          },
+          channel: { type: 'string', description: 'Channel to join, e.g. "#project-x"' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
       },
@@ -656,10 +593,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'Channel to leave, e.g. "#project-x"',
-          },
+          channel: { type: 'string', description: 'Channel to leave, e.g. "#project-x"' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
       },
@@ -673,16 +608,41 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          channel: {
-            type: 'string',
-            description: 'IRC channel, e.g. "#project-x"',
-          },
-          text: {
-            type: 'string',
-            description: 'New topic to set. Omit to get the current topic.',
-          },
+          channel: { type: 'string', description: 'IRC channel, e.g. "#project-x"' },
+          text: { type: 'string', description: 'New topic to set. Omit to get the current topic.' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
+      },
+    },
+    {
+      name: 'connect',
+      description: 'Connect to an additional IRC server. After connecting, use the server parameter on other tools to target it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          host: { type: 'string', description: 'IRC server host, e.g. "irc.example.com"' },
+          port: { type: 'number', description: 'IRC port (default: 6667, or 6697 for TLS)' },
+          nick: { type: 'string', description: 'Nickname for this connection' },
+          username: { type: 'string', description: 'Username/account name (defaults to nick)' },
+          password: { type: 'string', description: 'Account password' },
+          tls: { type: 'boolean', description: 'Use TLS (default: false)' },
+          websocket: { type: 'boolean', description: 'Use WebSocket transport (default: false)' },
+          channels: { type: 'string', description: 'Comma-separated channels to join (default: #general)' },
+          gate_channel: { type: 'string', description: 'High-priority gate channel (default: #gate)' },
+        },
+        required: ['host', 'nick', 'password'],
+      },
+    },
+    {
+      name: 'disconnect',
+      description: 'Disconnect from an IRC server.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          server: { type: 'string', description: 'IRC server host to disconnect from' },
+        },
+        required: ['server'],
       },
     },
   ],
@@ -693,212 +653,232 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 
   try {
     switch (req.params.name) {
+
       case 'send': {
         const channel = args.channel as string
         const text = args.text as string
-
-        if (!channel || !text) {
-          throw new Error('channel and text are required')
-        }
-
-        if (!ircConnected) {
-          throw new Error('not connected to IRC — server may be down, will reconnect automatically')
-        }
-
-        client.say(channel, text)
-        return {
-          content: [{ type: 'text', text: `sent to ${channel}` }],
-        }
+        if (!channel || !text) throw new Error('channel and text are required')
+        const conn = pool.resolve(args.server as string | undefined)
+        conn.client.say(channel, text)
+        return { content: [{ type: 'text', text: `sent to ${channel}` }] }
       }
 
       case 'dm': {
         const nick = args.nick as string
         const text = args.text as string
         if (!nick || !text) throw new Error('nick and text are required')
-        if (!ircConnected) throw new Error('not connected to IRC')
-        client.say(nick, text)
+        const conn = pool.resolve(args.server as string | undefined)
+        conn.client.say(nick, text)
         return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
       }
 
       case 'who': {
         const channel = (args.channel as string).toLowerCase()
         if (!channel) throw new Error('channel is required')
+        const conn = pool.resolve(args.server as string | undefined)
+        const st = getState(conn.config.host)
 
         const users = await new Promise<string[]>((resolve, reject) => {
           const timer = setTimeout(() => {
-            pendingNames.delete(channel)
+            st.pendingNames.delete(channel)
             reject(new Error('NAMES request timed out'))
           }, 5_000)
-
-          pendingNames.set(channel, { users: [], resolve, timer })
-          client.raw(`NAMES ${channel}`)
+          st.pendingNames.set(channel, { users: [], resolve, timer })
+          conn.client.raw(`NAMES ${channel}`)
         })
 
         if (users.length === 0) {
           return { content: [{ type: 'text', text: `no users in ${channel} (or not joined)` }] }
         }
-
-        return {
-          content: [{ type: 'text', text: `users in ${channel} (${users.length}): ${users.join(', ')}` }],
-        }
+        return { content: [{ type: 'text', text: `users in ${channel} (${users.length}): ${users.join(', ')}` }] }
       }
 
       case 'fetch_history': {
         const channel = (args.channel as string).toLowerCase()
         const limit = Math.min(Math.max(1, (args.limit as number | undefined) ?? 50), 100)
+        if (!channel) throw new Error('channel is required')
+        const conn = pool.resolve(args.server as string | undefined)
+        const st = getState(conn.config.host)
 
-        if (!channel) {
-          throw new Error('channel is required')
-        }
-
-        // If there's already a pending request for this channel, reject it first
-        const existing = pendingHistory.get(channel)
+        const existing = st.pendingHistory.get(channel)
         if (existing) {
           clearTimeout(existing.timer)
           existing.reject(new Error('superseded by new fetch_history request'))
-          pendingHistory.delete(channel)
+          st.pendingHistory.delete(channel)
         }
 
         const messages = await new Promise<HistoryMessage[]>((resolve, reject) => {
-          // Timeout after 10s — server may not support CHATHISTORY
           const timer = setTimeout(() => {
-            pendingHistory.delete(channel)
+            st.pendingHistory.delete(channel)
             reject(new Error('CHATHISTORY request timed out — server may not support the chathistory capability'))
           }, 10_000)
-
-          pendingHistory.set(channel, {
-            batchId: null,
-            messages: [],
-            resolve,
-            reject,
-            timer,
-          })
-
-          // IRCv3 CHATHISTORY LATEST: fetch the N most recent messages
-          // Format: CHATHISTORY LATEST <target> * <count>
-          client.raw(`CHATHISTORY LATEST ${channel} * ${limit}`)
+          st.pendingHistory.set(channel, { batchId: null, messages: [], resolve, reject, timer })
+          conn.client.raw(`CHATHISTORY LATEST ${channel} * ${limit}`)
         })
 
         if (messages.length === 0) {
-          return {
-            content: [{ type: 'text', text: `no history available for ${channel}` }],
-          }
+          return { content: [{ type: 'text', text: `no history available for ${channel}` }] }
         }
 
-        const formatted = messages
-          .map((m: HistoryMessage) => `[${m.ts}] <${m.nick}> ${m.text}`)
-          .join('\n')
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `${messages.length} message(s) from ${channel}:\n\n${formatted}`,
-            },
-          ],
-        }
+        const formatted = messages.map((m: HistoryMessage) => `[${m.ts}] <${m.nick}> ${m.text}`).join('\n')
+        return { content: [{ type: 'text', text: `${messages.length} message(s) from ${channel}:\n\n${formatted}` }] }
       }
 
       case 'join': {
         const channel = args.channel as string
-        if (!channel || !channel.startsWith('#')) {
-          throw new Error('channel is required and must start with #')
-        }
-        if (!ircConnected) throw new Error('not connected to IRC')
-        if (joinedChannels.has(channel.toLowerCase())) {
+        if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
+        const conn = pool.resolve(args.server as string | undefined)
+        const st = getState(conn.config.host)
+
+        if (st.joinedChannels.has(channel.toLowerCase())) {
           return { content: [{ type: 'text', text: `already in ${channel}` }] }
         }
-        client.join(channel)
-        // Wait up to 3s for join confirmation
+        conn.client.join(channel)
         await new Promise<void>((resolve) => {
           const timeout = setTimeout(resolve, 3_000)
           const check = setInterval(() => {
-            if (joinedChannels.has(channel.toLowerCase())) {
-              clearInterval(check)
-              clearTimeout(timeout)
-              resolve()
+            if (st.joinedChannels.has(channel.toLowerCase())) {
+              clearInterval(check); clearTimeout(timeout); resolve()
             }
           }, 100)
         })
-        if (joinedChannels.has(channel.toLowerCase())) {
-          return { content: [{ type: 'text', text: `joined ${channel}` }] }
+        return {
+          content: [{
+            type: 'text',
+            text: st.joinedChannels.has(channel.toLowerCase())
+              ? `joined ${channel}`
+              : `join sent to ${channel} — may need permissions`,
+          }],
         }
-        return { content: [{ type: 'text', text: `join sent to ${channel} — may need permissions` }] }
       }
 
       case 'part': {
         const channel = args.channel as string
-        if (!channel || !channel.startsWith('#')) {
-          throw new Error('channel is required and must start with #')
-        }
-        if (!ircConnected) throw new Error('not connected to IRC')
-        if (!joinedChannels.has(channel.toLowerCase())) {
+        if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
+        const conn = pool.resolve(args.server as string | undefined)
+        const st = getState(conn.config.host)
+        if (!st.joinedChannels.has(channel.toLowerCase())) {
           return { content: [{ type: 'text', text: `not in ${channel}` }] }
         }
-        client.part(channel)
+        conn.client.part(channel)
         return { content: [{ type: 'text', text: `left ${channel}` }] }
       }
 
       case 'topic': {
         const channel = args.channel as string
-        if (!channel || !channel.startsWith('#')) {
-          throw new Error('channel is required and must start with #')
-        }
-        if (!ircConnected) throw new Error('not connected to IRC')
-
+        if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
+        const conn = pool.resolve(args.server as string | undefined)
+        const st = getState(conn.config.host)
         const newTopic = args.text as string | undefined
 
         if (newTopic !== undefined) {
-          // Set topic
-          client.setTopic(channel, newTopic)
+          conn.client.setTopic(channel, newTopic)
           return { content: [{ type: 'text', text: `topic set in ${channel}` }] }
         }
 
-        // Get topic — send TOPIC command and wait for server reply
         const chLower = channel.toLowerCase()
         const topic = await new Promise<string>((resolve) => {
           const timer = setTimeout(() => {
-            pendingTopics.delete(chLower)
+            st.pendingTopics.delete(chLower)
             resolve('(no topic set)')
           }, 5_000)
-          pendingTopics.set(chLower, { resolve, timer })
-          client.raw(`TOPIC ${channel}`)
+          st.pendingTopics.set(chLower, { resolve, timer })
+          conn.client.raw(`TOPIC ${channel}`)
         })
-
-        const topicText = topic === '' ? '(no topic set)' : topic
-        return { content: [{ type: 'text', text: `topic in ${channel}: ${topicText}` }] }
+        return { content: [{ type: 'text', text: `topic in ${channel}: ${topic === '' ? '(no topic set)' : topic}` }] }
       }
 
       case 'list_channels': {
-        const channels = Array.from(joinedChannels)
-        if (channels.length === 0) {
-          return { content: [{ type: 'text', text: 'not currently joined to any channels' }] }
+        const serverFilter = args.server as string | undefined
+        const allConns = serverFilter
+          ? [pool.resolve(serverFilter)]
+          : pool.getAll()
+
+        if (allConns.length === 0) {
+          return { content: [{ type: 'text', text: 'not connected to any servers' }] }
         }
-        return {
-          content: [{ type: 'text', text: `joined channels (${channels.length}): ${channels.join(', ')}` }],
+
+        if (allConns.length === 1) {
+          const st = getState(allConns[0].config.host)
+          const channels = Array.from(st.joinedChannels)
+          if (channels.length === 0) return { content: [{ type: 'text', text: 'not currently joined to any channels' }] }
+          return { content: [{ type: 'text', text: `joined channels (${channels.length}): ${channels.join(', ')}` }] }
         }
+
+        const lines: string[] = ['joined channels:']
+        for (const conn of allConns) {
+          const st = getState(conn.config.host)
+          const channels = Array.from(st.joinedChannels)
+          lines.push(`  ${normalizeHost(conn.config.host)}: ${channels.join(', ') || '(none)'}`)
+        }
+        return { content: [{ type: 'text', text: lines.join('\n') }] }
       }
 
       case 'status': {
-        if (!ircConnected) {
-          return {
-            content: [{ type: 'text', text: 'disconnected — reconnecting automatically. Use fetch_history when back online.' }],
+        const all = pool.getAll()
+        if (all.length === 0) {
+          return { content: [{ type: 'text', text: 'not connected to any IRC servers' }] }
+        }
+
+        const primary = pool.getPrimary()
+        const lines: string[] = all.length > 1 ? [`connected to ${all.length} servers:`] : []
+
+        for (const conn of all) {
+          const st = getState(conn.config.host)
+          const uptimeMs = conn.connectedAt ? Date.now() - conn.connectedAt.getTime() : 0
+          const uptimeSec = Math.floor(uptimeMs / 1000)
+          const uptimeStr = uptimeSec < 60
+            ? `${uptimeSec}s`
+            : uptimeSec < 3600
+            ? `${Math.floor(uptimeSec / 60)}m ${uptimeSec % 60}s`
+            : `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m`
+          const channels = Array.from(st.joinedChannels)
+          const isPrimary = conn === primary
+
+          if (all.length === 1) {
+            lines.push(`connected to ${conn.config.host}:${conn.config.port} as ${conn.config.nick} (uptime: ${uptimeStr}, channels: ${channels.join(', ') || 'none'})`)
+          } else {
+            lines.push(`  ${isPrimary ? '[primary] ' : ''}${conn.config.host}:${conn.config.port} as ${conn.config.nick} — uptime ${uptimeStr}, channels: ${channels.join(', ') || 'none'}`)
           }
         }
-        const uptimeMs = connectedAt ? Date.now() - connectedAt.getTime() : 0
-        const uptimeSec = Math.floor(uptimeMs / 1000)
-        const uptimeStr = uptimeSec < 60
-          ? `${uptimeSec}s`
-          : uptimeSec < 3600
-          ? `${Math.floor(uptimeSec / 60)}m ${uptimeSec % 60}s`
-          : `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m`
-        const channels = Array.from(joinedChannels)
-        return {
-          content: [{
-            type: 'text',
-            text: `connected to ${connectedToHost} as ${IRC_NICK} (uptime: ${uptimeStr}, channels: ${channels.join(', ') || 'none'})`,
-          }],
-        }
+
+        return { content: [{ type: 'text', text: lines.join('\n') }] }
+      }
+
+      case 'connect': {
+        const host = args.host as string
+        const nick = args.nick as string
+        const password = args.password as string
+        if (!host || !nick || !password) throw new Error('host, nick, and password are required')
+
+        const port = (args.port as number | undefined) ?? 6667
+        const tls = (args.tls as boolean | undefined) ?? false
+        const websocket = (args.websocket as boolean | undefined) ?? false
+        const channelsRaw = (args.channels as string | undefined) ?? '#general'
+        const channels = channelsRaw.split(',').map(c => c.trim()).filter(Boolean)
+        const gateChannel = (args.gate_channel as string | undefined) ?? '#gate'
+
+        await pool.connect({
+          host,
+          port,
+          nick,
+          username: (args.username as string | undefined) ?? nick,
+          password,
+          tls,
+          websocket,
+          channels,
+          gateChannel,
+        })
+
+        return { content: [{ type: 'text', text: `connecting to ${host}:${port} as ${nick} — use status to confirm when ready` }] }
+      }
+
+      case 'disconnect': {
+        const server = args.server as string
+        if (!server) throw new Error('server is required')
+        await pool.disconnect(server)
+        connStates.delete(normalizeHost(server))
+        return { content: [{ type: 'text', text: `disconnected from ${server}` }] }
       }
 
       default:
@@ -917,40 +897,23 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 })
 
 // ---------------------------------------------------------------------------
-// Clean shutdown
+// Transport + shutdown
 // ---------------------------------------------------------------------------
+
+const transport = new StdioServerTransport()
+await mcp.connect(transport)
 
 function shutdown(signal: string) {
   process.stderr.write(`smalltalk channel: received ${signal}, disconnecting...\n`)
-  try {
-    client.quit('Claude Code shutting down')
-  } catch {}
+  for (const conn of pool.getAll()) {
+    try { conn.client.quit('Claude Code shutting down') } catch {}
+  }
   setTimeout(() => process.exit(0), 500)
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'))
-process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGINT',  () => shutdown('SIGINT'))
 
-// Prevent unhandled errors from killing the process unexpectedly
 process.on('uncaughtException', (err: Error) => {
   process.stderr.write(`smalltalk channel: uncaught error: ${err.message}\n`)
 })
-process.on('unhandledRejection', (reason: unknown) => {
-  process.stderr.write(`smalltalk channel: unhandled rejection: ${reason}\n`)
-})
-
-// ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-
-mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 })
-
-await mcp.connect(new StdioServerTransport())
-
-process.stderr.write(
-  `smalltalk channel: MCP server ready\n` +
-  `  IRC: ${IRC_HOST}:${IRC_PORT} (TLS: ${IRC_TLS})\n` +
-  `  nick: ${IRC_NICK}\n` +
-  `  channels: ${IRC_CHANNELS.join(', ')}\n` +
-  `  gate channel: ${GATE_CHANNEL}\n`,
-)
