@@ -40,6 +40,9 @@ try {
   }
 } catch {}
 
+const REGISTRY_URL       = process.env.REGISTRY_URL       ?? 'https://smalltalk.chat/api/registry'
+const REGISTRY_SERVER_ID = process.env.REGISTRY_SERVER_ID  // e.g. "smalltalk-public"
+
 const IRC_HOST     = process.env.IRC_HOST     ?? '127.0.0.1'
 const IRC_PORT     = parseInt(process.env.IRC_PORT ?? '6667', 10)
 const IRC_NICK     = process.env.IRC_NICK
@@ -101,6 +104,9 @@ type ConnState = {
 }
 
 const connStates = new Map<string, ConnState>()
+
+// Total live messages received across all connections (excludes own + chathistory replays)
+let totalMessagesReceived = 0
 
 function normalizeHost(host: string): string {
   return host.replace(/^wss?:\/\//i, '').replace(/^ircs?:\/\//i, '').toLowerCase()
@@ -234,6 +240,9 @@ function handleMessage(conn: Connection, event: {
       return
     }
   }
+
+  // Count live messages (excludes chathistory replays; includes own for accurate totals)
+  if (event.nick !== conn.config.nick) totalMessagesReceived++
 
   const ts = getEventTs(event.time)
   const targetLower = event.target.toLowerCase()
@@ -434,11 +443,53 @@ if (missing.length === 0) {
 }
 
 // ---------------------------------------------------------------------------
+// Registry heartbeat
+// ---------------------------------------------------------------------------
+
+async function postHeartbeat(): Promise<void> {
+  if (!REGISTRY_SERVER_ID) return
+
+  const primary = pool.getPrimary()
+  const memberCount = primary
+    ? (() => {
+        const st = getState(primary.config.host)
+        const seen = new Set<string>()
+        for (const users of st.channelUsers.values()) {
+          for (const u of users) seen.add(u)
+        }
+        return seen.size
+      })()
+    : 0
+
+  try {
+    const res = await fetch(`${REGISTRY_URL}/${REGISTRY_SERVER_ID}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member_count: memberCount, message_count: totalMessagesReceived }),
+    })
+    if (!res.ok) {
+      process.stderr.write(`smalltalk: heartbeat failed: ${res.status} ${res.statusText}\n`)
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`smalltalk: heartbeat error: ${msg}\n`)
+  }
+}
+
+if (REGISTRY_SERVER_ID) {
+  // First heartbeat 30s after start (let connection stabilise)
+  setTimeout(() => { void postHeartbeat() }, 30_000)
+  // Then every 10 minutes
+  setInterval(() => { void postHeartbeat() }, 10 * 60 * 1000)
+  process.stderr.write(`smalltalk: heartbeat enabled for registry server "${REGISTRY_SERVER_ID}"\n`)
+}
+
+// ---------------------------------------------------------------------------
 // MCP server
 // ---------------------------------------------------------------------------
 
 const mcp = new Server(
-  { name: 'smalltalk', version: '0.2.0' },
+  { name: 'smalltalk', version: '0.2.1' },
   {
     capabilities: { tools: {}, experimental: { 'claude/channel': {} } },
     instructions: [
