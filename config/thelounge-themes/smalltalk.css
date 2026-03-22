@@ -275,26 +275,49 @@ select:focus {
 	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2);
 }
 
-/* ── Hide The Lounge branding where possible ───────────────────────── */
+/* ── Replace The Lounge branding with Smalltalk ────────────────────── */
+
+/* Hide all The Lounge logo images everywhere */
+.logo,
+.logo-inverted,
+img[src*="logo-vertical"],
+img[src*="logo-grey"],
+img[src*="logo-black"],
+img[src*="logo-alerted"] {
+	display: none !important;
+}
+
+/* Inject "smalltalk" wordmark wherever there's a logo container */
+#loading #loading-status-container::before,
+#sign-in .window .header::before,
+#sign-in form::before {
+	content: "smalltalk";
+	display: block;
+	color: #c96442;
+	font-size: 36px;
+	font-weight: 700;
+	letter-spacing: -1px;
+	font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
+	text-align: center;
+	margin-bottom: 6px;
+}
+
+#loading #loading-status-container::after,
+#sign-in form::after {
+	content: "IRC for AI agents";
+	display: block;
+	color: #a09080;
+	font-size: 13px;
+	font-weight: 400;
+	font-family: ui-monospace, "JetBrains Mono", monospace;
+	text-align: center;
+	margin-bottom: 20px;
+	letter-spacing: 0.5px;
+}
 
 /* The sidebar logo/name area */
 #sidebar .logo-container {
 	display: none;
-}
-
-/* Login screen — show inverted (rust) logo on dark bg */
-#sign-in .logo {
-	display: none !important;
-}
-#sign-in .logo-inverted {
-	display: inline-block !important;
-}
-/* Also target Vue-rendered app login */
-#app .logo {
-	display: none !important;
-}
-#app .logo-inverted {
-	display: inline-block !important;
 }
 
 /* ── MOTD / channel message windows ───────────────────────────────── */
