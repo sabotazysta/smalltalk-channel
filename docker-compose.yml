@@ -21,6 +21,9 @@ services:
       - "9000:9000"
     volumes:
       - ./data/thelounge:/var/opt/thelounge
+      # Preact frontend — replace The Lounge's default Vue frontend
+      - /workspace/projects/smalltalk-webclient/client-new/dist:/usr/local/share/.config/yarn/global/node_modules/thelounge/public:ro
+      - /workspace/projects/smalltalk-channel/config/thelounge-overlay/client/index.html.tpl:/usr/local/share/.config/yarn/global/node_modules/thelounge/client/index.html.tpl:ro
     depends_on:
       - ergo
     networks:
