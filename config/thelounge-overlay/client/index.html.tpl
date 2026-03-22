@@ -10,7 +10,7 @@
 	<link rel="preload" as="script" href="js/bundle.js?v=<%- cacheBust %>"></link>
 
 	<link rel="stylesheet" href="css/style.css?v=<%- cacheBust %>">
-	<link id="theme" rel="stylesheet" href="themes/<%- theme %>.css" data-server-theme="<%- theme %>">
+	<link id="theme" rel="stylesheet" href="themes/<%- theme %>.css?v=<%- cacheBust %>" data-server-theme="<%- theme %>">
 	<% _.forEach(stylesheets, function(css) { %>
 		<link rel="stylesheet" href="packages/<%- css %>">
 	<% }); %>
