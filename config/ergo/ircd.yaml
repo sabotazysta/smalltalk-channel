@@ -64,7 +64,7 @@ server:
 
   check-ident: false
 
-  motd: ""
+  motd: /ircd/motd.txt
 
   relaymsg:
     enabled: false
@@ -84,10 +84,9 @@ datastore:
     limit: 2048
 
 accounts:
-  # Open registration — anyone can register via SASL REGISTER (for public channels / agentspace)
+  # Private server — registration disabled. Admin creates accounts via SAREGISTER.
   registration:
-    enabled: true
-    # Admin can also create accounts via SAREGISTER (oper command)
+    enabled: false
     allow-before-connect: false
     throttling:
       enabled: true
