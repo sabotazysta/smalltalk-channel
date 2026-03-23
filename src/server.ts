@@ -43,7 +43,7 @@ try {
 const REGISTRY_URL       = process.env.REGISTRY_URL       ?? 'https://smalltalk.chat/api/registry'
 const REGISTRY_SERVER_ID = process.env.REGISTRY_SERVER_ID  // e.g. "smalltalk-public"
 
-const IRC_HOST     = process.env.IRC_HOST     ?? '127.0.0.1'
+const IRC_HOST     = process.env.IRC_HOST
 const IRC_PORT     = parseInt(process.env.IRC_PORT ?? '6667', 10)
 const IRC_NICK     = process.env.IRC_NICK
 const IRC_USERNAME = process.env.IRC_USERNAME
@@ -55,6 +55,7 @@ const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#urgent').toLowerCase()
 
 const missing: string[] = []
+if (!IRC_HOST)     missing.push('IRC_HOST')
 if (!IRC_NICK)     missing.push('IRC_NICK')
 if (!IRC_USERNAME) missing.push('IRC_USERNAME')
 if (!IRC_PASSWORD) missing.push('IRC_PASSWORD')
@@ -429,7 +430,7 @@ pool.onReconnecting = (conn, event) => {
 
 if (missing.length === 0) {
   pool.connect({
-    host: IRC_HOST,
+    host: IRC_HOST!,
     port: IRC_PORT,
     nick: IRC_NICK!,
     username: IRC_USERNAME!,
@@ -639,6 +640,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object',
         properties: {
           channel: { type: 'string', description: 'Channel to join, e.g. "#project-x"' },
+          key: { type: 'string', description: 'Channel key (password) if the channel is +k protected.' },
           server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
         },
         required: ['channel'],
@@ -790,7 +792,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         if (st.joinedChannels.has(channel.toLowerCase())) {
           return { content: [{ type: 'text', text: `already in ${channel}` }] }
         }
-        conn.client.join(channel)
+        const key = args.key as string | undefined
+        conn.client.join(channel, key)
         await new Promise<void>((resolve) => {
           const timeout = setTimeout(resolve, 3_000)
           const check = setInterval(() => {

@@ -38,27 +38,26 @@
 	<meta name="theme-color" content="<%- themeColor %>">
 
 	<style>
-		/* Dark/light toggle button */
+		/* Dark/light toggle button — injected into #chat .header .right */
 		#st-theme-toggle {
-			position: fixed;
-			bottom: 16px;
-			right: 16px;
-			z-index: 9999;
-			background: #c96442;
-			color: #fff;
-			border: none;
-			border-radius: 20px;
-			padding: 6px 14px;
-			font-size: 12px;
+			background: transparent;
+			color: #a09080;
+			border: 1px solid #332e28;
+			border-radius: 3px;
+			padding: 2px 9px;
+			font-size: 11px;
 			font-family: ui-monospace, "JetBrains Mono", monospace;
 			cursor: pointer;
 			opacity: 0.85;
-			transition: opacity 0.2s, background 0.2s;
-			box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+			transition: opacity 0.2s, color 0.2s, border-color 0.2s;
+			vertical-align: middle;
+			flex-shrink: 0;
+			line-height: 1.4;
 		}
 		#st-theme-toggle:hover {
 			opacity: 1;
-			background: #d97f5a;
+			color: #e8ddd0;
+			border-color: #c96442;
 		}
 	</style>
 
@@ -108,7 +107,11 @@
 			}
 
 			function createToggle() {
-				if (document.getElementById('st-theme-toggle')) return;
+				if (document.getElementById('st-theme-toggle')) return true;
+				// Try to inject into header's right-side button area (Vue-rendered)
+				var target = document.querySelector('#chat .header .right')
+				          || document.querySelector('#chat .header');
+				if (!target) return false; // not rendered yet
 				var btn = document.createElement('button');
 				btn.id = 'st-theme-toggle';
 				var mode = getCurrentMode();
@@ -117,7 +120,8 @@
 					var current = getCurrentMode();
 					applyTheme(current === 'dark' ? 'light' : 'dark');
 				};
-				document.body.appendChild(btn);
+				target.appendChild(btn);
+				return true;
 			}
 
 			// Apply saved theme on load
@@ -129,16 +133,58 @@
 				});
 			}
 
-			// Create toggle button after page loads
-			window.addEventListener('load', function() {
-				createToggle();
+			// Create toggle button — observe DOM until header is ready
+			var toggleObserver = new MutationObserver(function() {
+				if (createToggle()) toggleObserver.disconnect();
 			});
-			// Fallback if already loaded
+			window.addEventListener('load', function() {
+				if (!createToggle()) {
+					toggleObserver.observe(document.body, { childList: true, subtree: true });
+				}
+			});
 			if (document.readyState === 'complete') {
-				createToggle();
+				if (!createToggle()) {
+					toggleObserver.observe(document.body, { childList: true, subtree: true });
+				}
 			}
 		})();
 		</script>
+		<!-- Smalltalk: inject logo into sign-in form -->
+		<script>
+		(function() {
+			var LOGO_SRC = 'img/smalltalk-logo.png?v=<%- cacheBust %>';
+
+			function injectSignInLogo() {
+				var signIn = document.getElementById('sign-in');
+				if (!signIn) return false;
+				if (signIn.querySelector('.st-logo-injected')) return true; // already done
+
+				// Find the logo container (has img.logo-inverted)
+				var logoImg = signIn.querySelector('img.logo-inverted, img.logo');
+				if (!logoImg) return false;
+
+				var logo = document.createElement('img');
+				logo.src = LOGO_SRC;
+				logo.className = 'st-logo-injected';
+				logo.alt = 'smalltalk';
+				logo.width = 256;
+				logo.height = 170;
+				logo.style.cssText = 'display:block;margin:0 auto 12px;max-width:100%';
+				logoImg.parentNode.insertBefore(logo, logoImg);
+				return true;
+			}
+
+			var signInObserver = new MutationObserver(function() {
+				if (injectSignInLogo()) signInObserver.disconnect();
+			});
+
+			window.addEventListener('load', function() {
+				signInObserver.observe(document.body, { childList: true, subtree: true });
+				injectSignInLogo();
+			});
+		})();
+		</script>
+
 		<!-- Smalltalk: patch Help section text -->
 		<script>
 		(function() {

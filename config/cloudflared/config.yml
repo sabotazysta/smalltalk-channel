@@ -3,4 +3,6 @@ ingress:
     service: http://thelounge:9000
   - hostname: irc.smalltalk.chat
     service: http://ergo:8098
+  - hostname: api.smalltalk.chat
+    service: http://provision:3000
   - service: http_status:404

@@ -4,8 +4,6 @@
  * Inspired by VS Code Dark / Discord Dark — easy on the eyes
  */
 
-@import "default.css";
-
 /* ── Core CSS variables ────────────────────────────────────────────── */
 
 :root {
@@ -106,10 +104,6 @@ body {
 }
 
 /* ── Messages ──────────────────────────────────────────────────────── */
-
-#chat .content {
-	background: #1a1816;
-}
 
 #chat .msg .time {
 	color: #665a4e;
@@ -281,17 +275,12 @@ select:focus {
 
 /* ── Userlist search area ───────────────────────────────────────────── */
 
-/* The count/search wrapper at the top of userlist has hardcoded #fafafa */
-#chat .userlist .count {
-	background: #181614 !important;
-}
-
 #chat .userlist .search {
 	background: transparent !important;
 	color: #e8ddd0 !important;
 }
 
-/* ── MOTD toggle-content ────────────────────────────────────────────── */
+/* ── MOTD / toggle-content ──────────────────────────────────────────── */
 /* Hardcoded background: #f6f6f6 in default.css — must override */
 #chat .toggle-content {
 	background: #1e1c1a !important;
@@ -304,29 +293,126 @@ select:focus {
 	color: #e8ddd0 !important;
 }
 
+/* Toggle text body — default.css sets color:#717171 (dark text on white) */
+#chat .toggle-text .body,
+#chat .toggle-type-error {
+	color: #a09080 !important;
+}
+
+/* monospace_block — white box in dark mode (background:#f6f6f6) */
+#chat .msg[data-type=monospace_block] .text {
+	background: #1e1c1a !important;
+	color: #e8ddd0 !important;
+	border: 1px solid #2a2622 !important;
+}
+
+/* Content area background + border — style.css uses border-left: 1px solid #f6f6f6 */
+#chat .content {
+	background: #1a1816 !important;
+	border-left-color: #252220 !important;
+}
+
+/* MOTD messages specifically */
+#chat .msg[data-command=motd] .content,
+#chat .msg[data-command=motd] .text {
+	color: #e8ddd0 !important;
+	background: transparent !important;
+}
+
+/* Nick display in public mode — background:#f6f6f6; color:#666 */
+#form #nick {
+	background: #252220 !important;
+	color: #a09080 !important;
+}
+
+/* Toggle button (expand/collapse) */
+#chat .toggle-button {
+	background: #252220 !important;
+	color: #a09080 !important;
+	border-color: #332e28 !important;
+}
+
+#chat .toggle-button:hover {
+	background: #2e2a26 !important;
+	color: #e8ddd0 !important;
+}
+
 /* Settings page */
 #settings {
 	background: #1a1816 !important;
 	color: #e8ddd0 !important;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif !important;
+	font-size: 13px !important;
 }
 
 #settings .opt {
 	border-color: #252220 !important;
 }
 
+/* ── Technical sections — font cleanup ─────────────────────────────── */
+
+#help,
+#connect,
+#settings {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif !important;
+	font-size: 13px !important;
+}
+
+#help h2, #help h3,
+#connect h2, #connect h3 {
+	font-size: 14px !important;
+	font-weight: 600 !important;
+	color: #c96442 !important;
+}
+
+/* ── Help section dark mode ─────────────────────────────────────────── */
+
+#help {
+	background: #1a1816 !important;
+	color: #e8ddd0 !important;
+}
+
+#help .help-item {
+	border-color: #252220 !important;
+}
+
+#help .help-version-title {
+	color: #a09080 !important;
+}
+
+/* ── Connect section dark mode ──────────────────────────────────────── */
+
+#connect {
+	background: #1a1816 !important;
+	color: #e8ddd0 !important;
+}
+
+/* ── Userlist count bar — default.css uses background:#fafafa ───────── */
+
+#chat .userlist .count {
+	background: #181614 !important;
+	border-bottom-color: #252220 !important;
+}
+
 /* ── Replace The Lounge branding with Smalltalk ────────────────────── */
 
-/* Hide all The Lounge logo images everywhere */
+/* Hide The Lounge logo images — except .logo-inverted in sign-in (our custom SVG) */
 .logo,
-.logo-inverted,
-img[src*="logo-vertical"],
+#loading .logo-inverted,
 img[src*="logo-grey"],
 img[src*="logo-black"],
 img[src*="logo-alerted"] {
 	display: none !important;
 }
 
-/* Show Smalltalk logo PNG in dark theme */
+/* Show custom SVG logo in sign-in form (mounted at logo-inverted path) */
+#sign-in .logo-inverted {
+	display: block !important;
+	margin: 0 auto 12px;
+	max-width: 256px;
+}
+
+/* Show Smalltalk logo PNG in loading screen */
 #st-logo {
 	display: block !important;
 	margin: 0 auto 8px;
@@ -382,27 +468,6 @@ img[src*="logo-alerted"] {
 .window .messages-list {
 	background: #1f1d1a;
 	color: #e8ddd0;
-}
-
-/* ── MOTD / toggle content ─────────────────────────────────────────── */
-
-/* The collapsible MOTD box that appears in the chat window */
-#chat .toggle-content {
-	background: #181614 !important;
-	color: #e8ddd0 !important;
-	border-color: #252220 !important;
-}
-
-/* Toggle button (expand/collapse) */
-#chat .toggle-button {
-	background: #252220 !important;
-	color: #a09080 !important;
-	border-color: #332e28 !important;
-}
-
-#chat .toggle-button:hover {
-	background: #2e2a26 !important;
-	color: #e8ddd0 !important;
 }
 
 /* ── Nick colors for dark theme ────────────────────────────────────── */
