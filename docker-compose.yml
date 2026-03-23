@@ -13,6 +13,19 @@ services:
     networks:
       - smalltalk
 
+  nginx:
+    image: nginx:alpine
+    container_name: smalltalk-nginx
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./config/nginx/chat.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - thelounge
+    networks:
+      - smalltalk
+
   thelounge:
     image: thelounge/thelounge:latest
     container_name: smalltalk-thelounge
@@ -21,8 +34,7 @@ services:
       - "hanza.smalltalk.chat:10.120.144.14"
       - "clinic.smalltalk.chat:10.120.144.14"
       - "irc.smalltalk.chat:10.120.144.14"
-    ports:
-      - "9000:9000"
+    ports: []
     volumes:
       - ./data/thelounge:/var/opt/thelounge
       # Custom Smalltalk theme + HTML template + logos
@@ -56,19 +68,22 @@ services:
     networks:
       - smalltalk
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: smalltalk-cloudflared
-    restart: unless-stopped
-    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate --protocol http2 run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    volumes:
-      - ./config/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
-    networks:
-      - smalltalk
-    depends_on:
-      - thelounge
+  # cloudflared: DISABLED — tunnel now runs on smalltalk-master
+  # The Lounge is exposed via socat proxy on master (thelounge-proxy container)
+  # Uncomment only if running this stack as standalone (not with master)
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: smalltalk-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate --protocol http2 run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   volumes:
+  #     - ./config/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+  #   networks:
+  #     - smalltalk
+  #   depends_on:
+  #     - thelounge
 
   # caddy is kept here for reference if you have a real public IP and prefer
   # to self-manage TLS instead of using Cloudflare Tunnel.

@@ -113,8 +113,13 @@ function normalizeHost(host: string): string {
   return host.replace(/^wss?:\/\//i, '').replace(/^ircs?:\/\//i, '').toLowerCase()
 }
 
-function getState(host: string): ConnState {
-  const key = normalizeHost(host)
+// Connection state key: host:port — prevents collisions when two servers share the same IP
+function connKey(host: string, port: number): string {
+  return normalizeHost(host) + ':' + port
+}
+
+function getState(host: string, port: number): ConnState {
+  const key = connKey(host, port)
   let s = connStates.get(key)
   if (!s) {
     s = {
@@ -154,7 +159,13 @@ function isMention(text: string, nick: string): boolean {
 }
 
 function serverPrefix(conn: Connection): string {
-  return pool.size() > 1 ? `[${normalizeHost(conn.config.host)}] ` : ''
+  if (pool.size() <= 1) return ''
+  // Include port if multiple connections share the same host (e.g. hanza:8080 vs clinic:8082)
+  const sameHost = pool.getAll().filter(c => normalizeHost(c.config.host) === normalizeHost(conn.config.host))
+  const label = sameHost.length > 1
+    ? `${normalizeHost(conn.config.host)}:${conn.config.port}`
+    : normalizeHost(conn.config.host)
+  return `[${label}] `
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +237,7 @@ function handleMessage(conn: Connection, event: {
   time: Date | string | null
   batch?: { id: string; type: string; params: string[] }
 }) {
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const gateChannel = (conn.config.gateChannel ?? '#urgent').toLowerCase()
   const myNick = conn.config.nick
 
@@ -331,7 +342,7 @@ function handleMessage(conn: Connection, event: {
 pool.onRegistered = (conn) => {
   process.stderr.write(`smalltalk: connected as ${conn.config.nick} on ${conn.config.host}:${conn.config.port}\n`)
   // On reconnect, rejoin both config channels and any runtime-joined channels
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const channelsToJoin = new Set([
     ...(conn.config.channels ?? ['#general']),
     ...st.joinedChannels, // rejoin runtime channels after reconnect
@@ -345,7 +356,7 @@ pool.onMessage = (conn, event) => handleMessage(conn, event)
 
 pool.onJoin = (conn, event) => {
   if (event.nick === conn.config.nick) {
-    const st = getState(conn.config.host)
+    const st = getState(conn.config.host, conn.config.port)
     st.joinedChannels.add(event.channel.toLowerCase())
     process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] joined ${event.channel}\n`)
   }
@@ -353,18 +364,18 @@ pool.onJoin = (conn, event) => {
 
 pool.onPart = (conn, event) => {
   if (event.nick === conn.config.nick) {
-    getState(conn.config.host).joinedChannels.delete(event.channel.toLowerCase())
+    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
   }
 }
 
 pool.onKick = (conn, event) => {
   if (event.kicked === conn.config.nick) {
-    getState(conn.config.host).joinedChannels.delete(event.channel.toLowerCase())
+    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
   }
 }
 
 pool.onUserlist = (conn, event) => {
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const ch = event.channel.toLowerCase()
   st.channelUsers.set(ch, new Set(event.users.map((u) => u.nick)))
   const pending = st.pendingNames.get(ch)
@@ -376,7 +387,7 @@ pool.onUserlist = (conn, event) => {
 }
 
 pool.onTopic = (conn, event) => {
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const ch = event.channel.toLowerCase()
   const pending = st.pendingTopics.get(ch)
   if (pending) {
@@ -387,7 +398,7 @@ pool.onTopic = (conn, event) => {
 }
 
 pool.onBatchStartChathistory = (conn, event) => {
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const channel = (event.params[0] ?? '').toLowerCase()
   const pending = st.pendingHistory.get(channel)
   if (pending) {
@@ -397,7 +408,7 @@ pool.onBatchStartChathistory = (conn, event) => {
 }
 
 pool.onBatchEndChathistory = (conn, event) => {
-  const st = getState(conn.config.host)
+  const st = getState(conn.config.host, conn.config.port)
   const channel = st.batchIdToChannel.get(event.id)
   st.batchIdToChannel.delete(event.id)
   if (!channel) return
@@ -459,7 +470,7 @@ async function postHeartbeat(): Promise<void> {
   const primary = pool.getPrimary()
   const memberCount = primary
     ? (() => {
-        const st = getState(primary.config.host)
+        const st = getState(primary.config.host, primary.config.port)
         const seen = new Set<string>()
         for (const users of st.channelUsers.values()) {
           for (const u of users) seen.add(u)
@@ -735,7 +746,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const channel = (args.channel as string).toLowerCase()
         if (!channel) throw new Error('channel is required')
         const conn = pool.resolve(args.server as string | undefined)
-        const st = getState(conn.config.host)
+        const st = getState(conn.config.host, conn.config.port)
 
         const users = await new Promise<string[]>((resolve, reject) => {
           const timer = setTimeout(() => {
@@ -757,7 +768,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const limit = Math.min(Math.max(1, (args.limit as number | undefined) ?? 50), 100)
         if (!channel) throw new Error('channel is required')
         const conn = pool.resolve(args.server as string | undefined)
-        const st = getState(conn.config.host)
+        const st = getState(conn.config.host, conn.config.port)
 
         const existing = st.pendingHistory.get(channel)
         if (existing) {
@@ -787,7 +798,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const channel = args.channel as string
         if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
         const conn = pool.resolve(args.server as string | undefined)
-        const st = getState(conn.config.host)
+        const st = getState(conn.config.host, conn.config.port)
 
         if (st.joinedChannels.has(channel.toLowerCase())) {
           return { content: [{ type: 'text', text: `already in ${channel}` }] }
@@ -816,7 +827,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const channel = args.channel as string
         if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
         const conn = pool.resolve(args.server as string | undefined)
-        const st = getState(conn.config.host)
+        const st = getState(conn.config.host, conn.config.port)
         if (!st.joinedChannels.has(channel.toLowerCase())) {
           return { content: [{ type: 'text', text: `not in ${channel}` }] }
         }
@@ -828,7 +839,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const channel = args.channel as string
         if (!channel || !channel.startsWith('#')) throw new Error('channel is required and must start with #')
         const conn = pool.resolve(args.server as string | undefined)
-        const st = getState(conn.config.host)
+        const st = getState(conn.config.host, conn.config.port)
         const newTopic = args.text as string | undefined
 
         if (newTopic !== undefined) {
@@ -859,7 +870,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
 
         if (allConns.length === 1) {
-          const st = getState(allConns[0].config.host)
+          const st = getState(allConns[0].config.host, allConns[0].config.port)
           const channels = Array.from(st.joinedChannels)
           if (channels.length === 0) return { content: [{ type: 'text', text: 'not currently joined to any channels' }] }
           return { content: [{ type: 'text', text: `joined channels (${channels.length}): ${channels.join(', ')}` }] }
@@ -867,7 +878,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 
         const lines: string[] = ['joined channels:']
         for (const conn of allConns) {
-          const st = getState(conn.config.host)
+          const st = getState(conn.config.host, conn.config.port)
           const channels = Array.from(st.joinedChannels)
           lines.push(`  ${normalizeHost(conn.config.host)}: ${channels.join(', ') || '(none)'}`)
         }
@@ -884,7 +895,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const lines: string[] = all.length > 1 ? [`connected to ${all.length} servers:`] : []
 
         for (const conn of all) {
-          const st = getState(conn.config.host)
+          const st = getState(conn.config.host, conn.config.port)
           const uptimeMs = conn.connectedAt ? Date.now() - conn.connectedAt.getTime() : 0
           const uptimeSec = Math.floor(uptimeMs / 1000)
           const uptimeStr = uptimeSec < 60
@@ -936,8 +947,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       case 'disconnect': {
         const server = args.server as string
         if (!server) throw new Error('server is required')
+        // Resolve conn before disconnecting to get the correct host:port key for connStates
+        let stateKey: string
+        try {
+          const c = pool.resolve(server)
+          stateKey = connKey(c.config.host, c.config.port)
+        } catch {
+          stateKey = normalizeHost(server)
+        }
         await pool.disconnect(server)
-        connStates.delete(normalizeHost(server))
+        connStates.delete(stateKey)
         return { content: [{ type: 'text', text: `disconnected from ${server}` }] }
       }
 

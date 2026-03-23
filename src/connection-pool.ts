@@ -38,6 +38,26 @@ function normalizeHost(host: string): string {
   return host.replace(/^wss?:\/\//i, '').replace(/^ircs?:\/\//i, '').toLowerCase()
 }
 
+// Canonical key for a connection: host:port (no protocol prefix, lowercase).
+function normalizeKey(host: string, port: number): string {
+  return normalizeHost(host) + ':' + port
+}
+
+// Resolve a user-supplied server string to a connection Map key.
+// Accepts "host:port" (preferred when two servers share the same host),
+// or bare "host" (resolves to the first connection on that host).
+function resolveKey(connections: Map<string, Connection>, server: string): string | null {
+  const bare = normalizeHost(server)
+  // Exact match — works for both "host:port" and legacy "host" keys
+  if (connections.has(bare)) return bare
+  // Prefix search: bare host matches "host:NNNN"
+  const prefix = bare + ':'
+  for (const k of connections.keys()) {
+    if (k.startsWith(prefix)) return k
+  }
+  return null
+}
+
 export class ConnectionPool {
   private connections = new Map<string, Connection>()
   private primaryHost: string | null = null
@@ -66,10 +86,10 @@ export class ConnectionPool {
   public onBatchEndChathistory?: (conn: Connection, event: { id: string; type: string; params: string[] }) => void
 
   async connect(config: ConnectionConfig): Promise<void> {
-    const key = normalizeHost(config.host)
+    const key = normalizeKey(config.host, config.port)
 
     if (this.connections.has(key)) {
-      throw new Error(`already connected to ${config.host}`)
+      throw new Error(`already connected to ${config.host}:${config.port}`)
     }
 
     const client = new IRC.Client()
@@ -93,7 +113,7 @@ export class ConnectionPool {
       conn.connectedAt = new Date()
       // Bug #3: set primaryHost only after successful registration, not before connect()
       if (this.primaryHost === null) {
-        this.primaryHost = key
+        this.primaryHost = key  // key is now host:port
       }
       this.onRegistered?.(conn)
     })
@@ -185,8 +205,11 @@ export class ConnectionPool {
   }
 
   async disconnect(host: string): Promise<void> {
-    const key = normalizeHost(host)
-    const conn = this.connections.get(key)
+    const key = resolveKey(this.connections, host)
+    if (!key) {
+      throw new Error(`no connection to ${host}`)
+    }
+    const conn = this.connections.get(key)!
     if (!conn) {
       throw new Error(`no connection to ${host}`)
     }
@@ -235,12 +258,12 @@ export class ConnectionPool {
       return conn
     }
 
-    const key = normalizeHost(server)
-    const conn = this.connections.get(key)
-    if (!conn) {
+    const key = resolveKey(this.connections, server)
+    if (!key) {
       const available = Array.from(this.connections.keys()).join(', ') || 'none'
       throw new Error(`no connection to server "${server}" (available: ${available})`)
     }
+    const conn = this.connections.get(key)!
     // Bug #2: don't return dead connections silently
     if (conn.status !== 'connected') {
       throw new Error(`connection to ${server} is not ready (status: ${conn.status})`)
@@ -249,8 +272,8 @@ export class ConnectionPool {
   }
 
   setPrimary(host: string): void {
-    const key = normalizeHost(host)
-    if (!this.connections.has(key)) {
+    const key = resolveKey(this.connections, host)
+    if (!key) {
       throw new Error(`no connection to ${host}`)
     }
     this.primaryHost = key

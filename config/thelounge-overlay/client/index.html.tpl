@@ -38,31 +38,48 @@
 	<meta name="theme-color" content="<%- themeColor %>">
 
 	<style>
-		/* Dark/light toggle button — injected into #chat .header .right */
+		/* Toggle button — hidden until moved into #footer by JS */
 		#st-theme-toggle {
-			background: transparent;
-			color: #a09080;
-			border: 1px solid #332e28;
-			border-radius: 3px;
-			padding: 2px 9px;
-			font-size: 11px;
-			font-family: ui-monospace, "JetBrains Mono", monospace;
+			display: none;
+			border-radius: 5px;
 			cursor: pointer;
-			opacity: 0.85;
-			transition: opacity 0.2s, color 0.2s, border-color 0.2s;
-			vertical-align: middle;
-			flex-shrink: 0;
-			line-height: 1.4;
+			height: 100%;
+			width: 45px;
+			font-size: 16px;
+			background: transparent;
+			border: none;
+			opacity: 0.7;
+			transition: opacity 0.15s, color 0.15s, background 0.15s;
 		}
 		#st-theme-toggle:hover {
 			opacity: 1;
-			color: #e8ddd0;
-			border-color: #c96442;
+			background-color: rgba(48, 62, 74, 0.5);
+		}
+		/* Show once moved into footer */
+		#footer #st-theme-toggle {
+			display: inline-block;
+		}
+
+		/* Smalltalk logo in sidebar — CSS wordmark, works in both themes */
+		#sidebar .logo-container img {
+			display: none !important;
+		}
+		#sidebar .logo-container::before {
+			content: "smalltalk";
+			display: block;
+			color: #c96442;
+			font-size: 15px;
+			font-weight: 700;
+			letter-spacing: -0.5px;
+			font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
+			text-align: center;
+			padding: 13px 8px;
 		}
 	</style>
 
 	</head>
 	<body class="<%- public ? " public" : "" %>" data-transports="<%- JSON.stringify(transports) %>">
+		<button id="st-theme-toggle" title="Toggle dark/light mode">☾</button>
 		<div id="app"></div>
 		<div id="loading">
 			<div class="window">
@@ -88,65 +105,38 @@
 			var DARK_THEME = 'smalltalk';
 			var LIGHT_THEME = 'default';
 			var STORAGE_KEY = 'st_theme_mode';
-
-			function getThemeLink() {
-				return document.getElementById('theme');
-			}
+			var btn = document.getElementById('st-theme-toggle');
 
 			function getCurrentMode() {
 				return localStorage.getItem(STORAGE_KEY) || 'dark';
 			}
 
 			function applyTheme(mode) {
-				var link = getThemeLink();
-				if (!link) return;
-				link.href = 'themes/' + (mode === 'dark' ? DARK_THEME : LIGHT_THEME) + '.css';
-				var btn = document.getElementById('st-theme-toggle');
-				if (btn) btn.textContent = mode === 'dark' ? '☀ light' : '☾ dark';
+				var link = document.getElementById('theme');
+				if (link) link.href = 'themes/' + (mode === 'dark' ? DARK_THEME : LIGHT_THEME) + '.css';
+				if (btn) btn.textContent = mode === 'dark' ? '☀' : '☾';
+				if (btn) btn.title = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 				localStorage.setItem(STORAGE_KEY, mode);
 			}
 
-			function createToggle() {
-				if (document.getElementById('st-theme-toggle')) return true;
-				// Try to inject into header's right-side button area (Vue-rendered)
-				var target = document.querySelector('#chat .header .right')
-				          || document.querySelector('#chat .header');
-				if (!target) return false; // not rendered yet
-				var btn = document.createElement('button');
-				btn.id = 'st-theme-toggle';
-				var mode = getCurrentMode();
-				btn.textContent = mode === 'dark' ? '☀ light' : '☾ dark';
+			if (btn) {
 				btn.onclick = function() {
-					var current = getCurrentMode();
-					applyTheme(current === 'dark' ? 'light' : 'dark');
+					applyTheme(getCurrentMode() === 'dark' ? 'light' : 'dark');
 				};
-				target.appendChild(btn);
-				return true;
 			}
 
-			// Apply saved theme on load
-			var savedMode = getCurrentMode();
-			if (savedMode !== 'dark') {
-				// Wait for DOM to be ready to swap theme
-				window.addEventListener('DOMContentLoaded', function() {
-					applyTheme(savedMode);
-				});
-			}
+			// Apply saved theme immediately
+			applyTheme(getCurrentMode());
 
-			// Create toggle button — observe DOM until header is ready
-			var toggleObserver = new MutationObserver(function() {
-				if (createToggle()) toggleObserver.disconnect();
-			});
-			window.addEventListener('load', function() {
-				if (!createToggle()) {
-					toggleObserver.observe(document.body, { childList: true, subtree: true });
+			// Move button into #footer (next to ? button) once Vue renders it
+			var observer = new MutationObserver(function() {
+				var footer = document.getElementById('footer');
+				if (footer && btn && btn.parentNode !== footer) {
+					footer.appendChild(btn);
+					observer.disconnect();
 				}
 			});
-			if (document.readyState === 'complete') {
-				if (!createToggle()) {
-					toggleObserver.observe(document.body, { childList: true, subtree: true });
-				}
-			}
+			observer.observe(document.body, { childList: true, subtree: true });
 		})();
 		</script>
 		<!-- Smalltalk: inject logo into sign-in form -->

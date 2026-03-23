@@ -7,10 +7,19 @@
 /* ── Core CSS variables ────────────────────────────────────────────── */
 
 :root {
+	/* Text */
 	--body-color: #e8ddd0;
 	--body-color-muted: #a09080;
-	--link-color: #c9845a;
+	/* Backgrounds */
+	--body-bg-color: #1a1816;
 	--window-bg-color: #1a1816;
+	--overlay-bg-color: rgba(0, 0, 0, 0.7);
+	/* Accents */
+	--link-color: #c9845a;
+	--button-color: #c96442;
+	--button-text-color-hover: #fff;
+	--upload-progressbar-color: #c96442;
+	/* Headings / markers */
 	--window-heading-color: #a09080;
 	--date-marker-color: #c96442;
 	--unread-marker-color: #c96442;
@@ -249,6 +258,7 @@ a:hover {
 }
 
 /* ── Form inputs ───────────────────────────────────────────────────── */
+/* style.css uses both <input> elements AND .input divs (connect/settings forms) */
 
 input[type="text"],
 input[type="password"],
@@ -259,18 +269,34 @@ input[type="url"],
 input[type="tel"],
 input:not([type]),
 textarea,
-select {
+select,
+.input {
 	background: #1f1d1a !important;
+	background-color: #1f1d1a !important;
 	border-color: #332e28 !important;
 	color: #e8ddd0 !important;
 }
 
 input:focus,
 textarea:focus,
-select:focus {
+select:focus,
+.input:focus,
+.input:hover:not(:disabled) {
 	border-color: #c96442 !important;
 	outline: none;
-	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2);
+	box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2) !important;
+}
+
+input::placeholder,
+textarea::placeholder,
+.input::placeholder {
+	color: #665a4e !important;
+}
+
+/* .input:disabled */
+.input:disabled {
+	background: #181614 !important;
+	color: #665a4e !important;
 }
 
 /* ── Userlist search area ───────────────────────────────────────────── */
@@ -432,9 +458,9 @@ img[src*="logo-alerted"] {
 	letter-spacing: 0.5px;
 }
 
-/* The sidebar logo/name area */
+/* The sidebar logo/name area — images hidden via template CSS, replaced by ::before wordmark */
 #sidebar .logo-container {
-	display: none;
+	display: block;
 }
 
 /* ── MOTD / channel message windows ───────────────────────────────── */
@@ -570,4 +596,41 @@ img[src*="logo-alerted"] {
 
 #sign-in .btn:hover {
 	background: #d97f5a !important;
+}
+
+/* ── .btn global style ─────────────────────────────────────────────── */
+/* style.css uses --button-color for .btn — now we define it as accent  */
+
+.btn {
+	border-color: #c96442 !important;
+	color: #c96442 !important;
+}
+
+.btn:hover,
+.btn:focus {
+	background: #c96442 !important;
+	color: #fff !important;
+}
+
+/* ── Settings sync panel — hardcoded light blue, override ────────────── */
+
+#settings .settings-sync-panel {
+	background-color: #1e2a32 !important;
+	color: #a0c0d0 !important;
+	border: 1px solid #2a4050 !important;
+}
+
+/* ── code / irc-monospace — white bg in default ──────────────────────── */
+
+.irc-monospace,
+code {
+	background-color: #252220 !important;
+	color: #c9b09a !important;
+}
+
+/* ── Jump-to overlay ─────────────────────────────────────────────────── */
+
+.jump-to-input .input {
+	background-color: rgba(26, 24, 22, 0.9) !important;
+	color: #e8ddd0 !important;
 }
