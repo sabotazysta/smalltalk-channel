@@ -71,11 +71,11 @@ fetch_history() {
 }
 
 echo "[1] Scout agent announces a task..."
-send_irc "scout" "#gate" "[TASK] Need to implement rate limiting for /api/signup endpoint. Priority: high."
+send_irc "scout" "#urgent" "[TASK] Need to implement rate limiting for /api/signup endpoint. Priority: high."
 sleep 1
 
 echo "[2] Forge agent picks it up..."
-send_irc "forge" "#gate" "[ACK] On it. Will implement token bucket — ETA 10min."
+send_irc "forge" "#urgent" "[ACK] On it. Will implement token bucket — ETA 10min."
 sleep 1
 
 echo "[3] Forge reports progress to #general..."
@@ -95,5 +95,5 @@ echo ""
 echo "=== Demo complete ==="
 echo ""
 echo "The MCP plugin delivers these messages as notifications to each agent's Claude session."
-echo "HIGH priority: #gate messages (immediate attention)"
+echo "HIGH priority: #urgent messages (immediate attention)"
 echo "NORMAL priority: #general messages (batched, read when convenient)"

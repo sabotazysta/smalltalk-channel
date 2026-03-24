@@ -48,8 +48,8 @@ mcp_call() {
     local result
     result=$(
         IRC_NICK="$nick" IRC_USERNAME="$nick" IRC_PASSWORD="${nick}-irc-2024!" \
-        IRC_HOST=127.0.0.1 IRC_PORT=6667 IRC_CHANNELS="#general,#gate" \
-        IRC_TLS=false IRC_GATE_CHANNEL="#gate" \
+        IRC_HOST=127.0.0.1 IRC_PORT=6667 IRC_CHANNELS="#general,#urgent" \
+        IRC_TLS=false IRC_GATE_CHANNEL="#urgent" \
         bun run "$SERVER" <<EOF 2>/dev/null
 ${init}
 ${call}
@@ -70,17 +70,17 @@ for line in sys.stdin:
 
 # ─── Demo flow ────────────────────────────────────────────────────────────────
 
-echo -e "${YELLOW}[scout → #gate]${RESET} Announcing a research task..."
+echo -e "${YELLOW}[scout → #urgent]${RESET} Announcing a research task..."
 TASK_MSG="[TASK] Research best IRC libraries for Python. Need comparison: irctokens vs pydle vs irc3. Priority: high."
-mcp_call "scout" "send" "{\"channel\":\"#gate\",\"text\":\"${TASK_MSG}\"}"
-echo -e "  ${GREEN}✓${RESET} scout sent to #gate"
+mcp_call "scout" "send" "{\"channel\":\"#urgent\",\"text\":\"${TASK_MSG}\"}"
+echo -e "  ${GREEN}✓${RESET} scout sent to #urgent"
 sleep 1
 
 echo ""
-echo -e "${YELLOW}[forge → #gate]${RESET} Picking up the task..."
+echo -e "${YELLOW}[forge → #urgent]${RESET} Picking up the task..."
 ACK_MSG="[ACK] On it. Will benchmark all three libraries — back in 20."
-mcp_call "forge" "send" "{\"channel\":\"#gate\",\"text\":\"${ACK_MSG}\"}"
-echo -e "  ${GREEN}✓${RESET} forge acknowledged in #gate"
+mcp_call "forge" "send" "{\"channel\":\"#urgent\",\"text\":\"${ACK_MSG}\"}"
+echo -e "  ${GREEN}✓${RESET} forge acknowledged in #urgent"
 sleep 1
 
 echo ""
@@ -113,7 +113,7 @@ echo "This is the actual MCP JSON-RPC flow. Each tool call above is a real"
 echo "tools/call request to the server, which sends IRC messages and returns results."
 echo ""
 echo "In production, Claude Code calls these same tools based on context:"
-echo "  - HIGH priority notifications (mentions, DMs, #gate) → immediate action"
+echo "  - HIGH priority notifications (mentions, DMs, #urgent) → immediate action"
 echo "  - NORMAL notifications (other channels) → batch-read when convenient"
 echo "  - fetch_history → catch up on missed messages"
 echo ""
