@@ -554,7 +554,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
     .drawer-inner {
       display: flex;
       gap: 0;
+      animation: drawerIn 0.18s ease;
     }
+
+    @keyframes drawerIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     .drawer-col {
       flex: 1;
       padding: 12px 16px;
@@ -747,6 +754,17 @@ const ADMIN_HTML = `<!DOCTYPE html>
       word-break: break-word;
     }
 
+    .msg-ch {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-size: 11px;
+      flex-shrink: 0;
+      width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .msg-loading {
       padding: 20px;
       text-align: center;
@@ -791,7 +809,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--text-muted);
+      color: var(--accent);
       font-family: var(--font-mono);
     }
 
@@ -941,7 +959,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="header-left">
+  <div class="header-left" style="cursor:pointer" onclick="navServers()">
     <div class="logo-dot"></div>
     <div class="logo-text">smalltalk <span>admin</span></div>
   </div>
@@ -1203,7 +1221,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
       const server = (lastData || []).find(function(s) { return s.id === serverId; });
       if (server) navServer(server, true);
     } else if (type === 'user' && parts[1]) {
-      navUser(decodeURIComponent(parts[1]), null, true);
+      if (parts.length >= 3) {
+        const serverId = decodeURIComponent(parts[1]);
+        const nick = decodeURIComponent(parts[2]);
+        const server = (lastData || []).find(function(s) { return s.id === serverId; });
+        navUser(nick, server || null, true);
+      } else {
+        navUser(decodeURIComponent(parts[1]), null, true);
+      }
     } else if (type === 'channel' && parts.length >= 3) {
       const serverId = decodeURIComponent(parts[1]);
       const server = (lastData || []).find(function(s) { return s.id === serverId; });
@@ -1265,7 +1290,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
     document.getElementById('bc-sep2').style.display = '';
     document.getElementById('bc-channel').textContent = '@' + nick;
     document.getElementById('bc-channel').style.display = '';
-    if (!noHash) setHash('user/' + encodeURIComponent(nick));
+    if (!noHash) {
+      const srvForHash = srv || currentServer;
+      setHash('user/' + (srvForHash ? encodeURIComponent(srvForHash.id || srvForHash.name) + '/' : '') + encodeURIComponent(nick));
+    }
     loadUserPage(nick);
   }
 
@@ -1493,7 +1521,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
     } else {
       shown.forEach(function(m) {
         const timeStr = escHtml(formatMsgTime(m.timestamp));
-        const ch = m.channel ? \`<span style="color:var(--text-muted);font-size:11px;margin-right:6px">\${escHtml(m.channel)}</span>\` : '';
+        const ch = \`<span class="msg-ch">\${m.channel ? escHtml(m.channel) : ''}</span>\`;
         const txt = escHtml(m.text || m.message || '');
         html += \`<div class="msg-line" style="padding:5px 12px"><span class="msg-time">\${timeStr}</span><span class="msg-nick" style="color:var(--accent)">\${escHtml(nick)}</span>\${ch}<span class="msg-text">\${txt}</span></div>\`;
       });
@@ -1548,9 +1576,9 @@ const ADMIN_HTML = `<!DOCTYPE html>
   }
 
   function getStatus(server) {
-    if (!server.last_heartbeat) return 'offline';
+    if (!server.last_heartbeat) return 'unknown';
     const hb = formatHeartbeat(server.last_heartbeat);
-    if (!hb) return 'offline';
+    if (!hb) return 'unknown';
     const age = Date.now() - hb.getTime();
     if (age <= ACTIVE_THRESHOLD_MS) return 'online';
     if (age <= 60 * 60 * 1000) return 'stale'; // within 1h
@@ -1558,8 +1586,8 @@ const ADMIN_HTML = `<!DOCTYPE html>
   }
 
   function statusBadge(status) {
-    const labels = { online: 'online', offline: 'offline', stale: 'stale' };
-    return \`<span class="status-badge status-\${status}">\${labels[status]}</span>\`;
+    const labels = { online: 'online', offline: 'offline', stale: 'stale', unknown: 'unknown' };
+    return \`<span class="status-badge status-\${status}">\${labels[status] || status}</span>\`;
   }
 
   function renderTags(tagsStr) {
@@ -1628,8 +1656,26 @@ const ADMIN_HTML = `<!DOCTYPE html>
     drawerRow.id = drawerId;
     drawerRow.className = 'server-drawer';
     drawerRow.innerHTML = \`<td colspan="\${colspan}"><div class="drawer-inner">
-      <div class="drawer-col"><div class="drawer-col-title">Channels</div><div class="drawer-list" id="drawer-ch-\${serverId}"><div class="drawer-loading">loading…</div></div></div>
-      <div class="drawer-col"><div class="drawer-col-title">Users</div><div class="drawer-list" id="drawer-usr-\${serverId}"><div class="drawer-loading">loading…</div></div></div>
+      <div class="drawer-col">
+        <div class="drawer-col-title">Channels</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Channel</th>
+            <th style="text-align:right;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Msgs</th>
+          </tr></thead>
+          <tbody id="drawer-ch-\${serverId}"><tr><td colspan="2" class="drawer-loading">loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="drawer-col">
+        <div class="drawer-col-title">Users</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Nick</th>
+            <th style="text-align:right;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Msgs</th>
+          </tr></thead>
+          <tbody id="drawer-usr-\${serverId}"><tr><td colspan="2" class="drawer-loading">loading…</td></tr></tbody>
+        </table>
+      </div>
     </div></td>\`;
     rowEl.insertAdjacentElement('afterend', drawerRow);
 
@@ -1661,33 +1707,33 @@ const ADMIN_HTML = `<!DOCTYPE html>
       if (!chEl || !usrEl) return;
 
       if (!channels.length) {
-        chEl.innerHTML = '<div class="drawer-loading">no channels</div>';
+        chEl.innerHTML = '<tr><td colspan="2" class="drawer-loading">no channels</td></tr>';
       } else {
         chEl.innerHTML = channels.slice(0, 10).map(ch => {
           const name = escHtml(ch.channel || ch.name || '?');
           const chSrv = ch.server || '';
           const path = escHtml(chSrv) + '/' + escHtml(ch.channel || ch.name || '');
-          return \`<div class="drawer-row" onclick="navChannel(lastData.find(function(x){return x.id==='\${serverId}';}), '\${path}')">
-            <span class="drawer-row-name">\${name}</span>
-            <span class="drawer-row-count">\${ch.message_count ?? '—'}</span>
-          </div>\`;
+          return \`<tr style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer" onclick="navChannel(lastData.find(function(x){return x.id==='\${serverId}';}), '\${path}')" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <td style="padding:5px 6px;font-family:var(--font-mono);color:var(--accent)">\${name}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text-muted);font-size:11px;font-family:var(--font-mono)">\${ch.message_count ?? '—'}</td>
+          </tr>\`;
         }).join('');
       }
 
       if (!users.length) {
-        usrEl.innerHTML = '<div class="drawer-loading">no users</div>';
+        usrEl.innerHTML = '<tr><td colspan="2" class="drawer-loading">no users</td></tr>';
       } else {
         usrEl.innerHTML = users.slice(0, 10).map(u => {
           const nick = escHtml(u.nick || '?');
-          return \`<div class="drawer-row" onclick="navUser('\${nick}', lastData.find(function(x){return x.id==='\${serverId}';}))">
-            <span class="drawer-row-name">\${nick}</span>
-            <span class="drawer-row-count">\${formatNumber(u.message_count ?? 0)}</span>
-          </div>\`;
+          return \`<tr style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer" onclick="navUser('\${nick}', lastData.find(function(x){return x.id==='\${serverId}';}))" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <td style="padding:5px 6px;font-family:var(--font-mono);color:var(--accent)">\${nick}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text-muted);font-size:11px;font-family:var(--font-mono)">\${formatNumber(u.message_count ?? 0)}</td>
+          </tr>\`;
         }).join('');
       }
     } catch (err) {
       const chEl = document.getElementById('drawer-ch-' + serverId);
-      if (chEl) chEl.innerHTML = \`<div class="drawer-loading" style="color:var(--red)">\${escHtml(err.message)}</div>\`;
+      if (chEl) chEl.innerHTML = \`<tr><td colspan="2" class="drawer-loading" style="color:var(--red)">\${escHtml(err.message)}</td></tr>\`;
     }
   }
 
