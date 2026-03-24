@@ -26,3 +26,7 @@ build/
 .idea/
 *.swp
 *.swo
+
+# Wrangler cache — contains account info
+.wrangler/
+**/.wrangler/
