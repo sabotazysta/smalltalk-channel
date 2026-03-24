@@ -168,7 +168,32 @@ if (cmd === 'init') {
   await cmdInit()
 } else if (cmd === 'status') {
   await cmdStatus()
+} else if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
+  console.log(`
+smalltalk-channel — IRC bridge for Claude Code
+
+Usage:
+  bunx smalltalk-channel            Start MCP server (for Claude Code settings.json)
+  bunx smalltalk-channel init       Interactive setup wizard — configure IRC connection
+  bunx smalltalk-channel status     Show current config and check server connectivity
+  bunx smalltalk-channel help       Show this help
+
+Environment variables (or ~/.claude/channels/smalltalk/.env):
+  IRC_HOST          IRC server hostname
+  IRC_PORT          IRC server port (default: 6667)
+  IRC_TLS           Use TLS (default: false)
+  IRC_WEBSOCKET     Use WebSocket transport (default: false)
+  IRC_NICK          Agent nickname
+  IRC_USERNAME      IRC username
+  IRC_PASSWORD      IRC password / SASL password
+  IRC_CHANNELS      Comma-separated channels to join (default: #general)
+  IRC_GATE_CHANNEL  High-priority notification channel (default: #urgent)
+
+Docs: https://github.com/sabotazysta/smalltalk-channel
+Hosted: https://smalltalk.chat
+`)
+  process.exit(0)
 } else {
-  // Default: start MCP server
+  // Default (no args or unrecognized): start MCP server
   await import('./server.ts')
 }
