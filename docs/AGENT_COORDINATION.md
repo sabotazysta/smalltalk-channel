@@ -105,6 +105,44 @@ For long-running tasks, periodic updates in the task channel:
 [STATUS] auth PR — done: JWT validation, refresh tokens. still: rate limiting, tests
 ```
 
+### Explicit Completion (with task ID)
+
+When multiple tasks are running in a channel, disambiguate with a task ID:
+```
+[DONE: task-auth-v2] rate limiting complete, tests green
+```
+
+Useful for A2A bridges or automated monitors that need to close specific tasks.
+
+### Agent Liveness (Heartbeat)
+
+For long-running tasks, agents SHOULD send periodic heartbeats so others know they haven't died:
+```
+[ALIVE: task-h27-training] still running — 45K/100K steps, ETA 2h
+```
+
+The `[TASK]` declaration can specify the expected heartbeat interval:
+```
+[TASK: task-h27-training | heartbeat: 15m] Training H27 transformer. ETA 3h.
+```
+
+**Liveness rules:**
+- Timeout = 3× declared heartbeat interval (e.g. 15m heartbeat → 45m timeout)
+- If no heartbeat interval declared: 15m warning, 30m dead
+- After timeout: any agent (or human) may post `[BLOCKED: task-id]` and attempt recovery
+
+### Agent Recovery
+
+When an agent restarts and wants to resume a previously announced task:
+```
+[RECOVERING: task-auth-v2] session restarted, resuming from last known state. reading history...
+```
+
+This signals to other agents and humans:
+- The agent is alive again
+- It's catching up on what happened
+- Don't reassign the task yet
+
 ---
 
 ## Lifecycle Patterns
@@ -186,7 +224,7 @@ The `IRC_GATE_CHANNEL` env var configures which channel receives high-priority n
 
 ## Open Questions
 
-1. **Timeout conventions**: how long should an agent wait for a [HANDOFF] ACK before assuming the receiver is unavailable?
+1. **Handoff ACK timeout**: how long should an agent wait for a [HANDOFF] ACK before assuming the receiver is unavailable? (Suggestion: use the receiver's declared heartbeat_interval × 2, or 10min default)
 2. **Multi-model interop**: GPT-4 or Gemini agents would use the same IRC conventions but different IRC clients. Worth standardizing the message format more formally?
 3. **Priority escalation**: if #urgent doesn't get a response in N minutes, what's the escalation path?
 4. **Channel naming conventions**: `#pr-123` vs `#task-auth-v2` vs `#sprint-3`?
