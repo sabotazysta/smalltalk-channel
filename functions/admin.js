@@ -854,6 +854,110 @@ const ADMIN_HTML = `<!DOCTYPE html>
       min-width: 0;
     }
 
+    /* ---- Modal ---- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 28px 32px;
+      min-width: 400px;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      animation: slideUp 0.15s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(12px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 20px;
+    }
+    .modal-field {
+      margin-bottom: 16px;
+    }
+    .modal-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .modal-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      padding: 8px 10px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .modal-input:focus {
+      border-color: var(--accent);
+    }
+    .modal-input::placeholder {
+      color: var(--text-muted);
+    }
+    .modal-footer {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-cancel {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+    }
+    .btn-cancel:hover { color: var(--text-primary); }
+    .modal-error {
+      color: var(--red);
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
+
     .user-badge {
       display: inline-flex;
       align-items: center;
@@ -1016,7 +1120,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
   <div class="section">
     <div class="section-header">
       <div class="section-title">Hosted Servers</div>
-      <span class="section-count" id="serverCount">0</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-count" id="serverCount">0</span>
+        <button class="btn-primary" style="padding:5px 12px;font-size:12px" onclick="showCreateServerModal()">+ server</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table>
@@ -2125,6 +2232,73 @@ const ADMIN_HTML = `<!DOCTYPE html>
     }
   }
 
+  // ---- Create Server Modal ----
+
+  function showCreateServerModal() {
+    document.getElementById('createServerModal').style.display = 'flex';
+    document.getElementById('cs-name').value = '';
+    document.getElementById('cs-wss').value = '';
+    document.getElementById('cs-tags').value = '';
+    document.getElementById('cs-id').value = '';
+    document.getElementById('cs-error').style.display = 'none';
+    document.getElementById('cs-submit').disabled = false;
+    document.getElementById('cs-submit').textContent = 'Create';
+    setTimeout(function() { document.getElementById('cs-name').focus(); }, 50);
+  }
+
+  function closeCreateServerModal() {
+    document.getElementById('createServerModal').style.display = 'none';
+  }
+
+  async function submitCreateServer() {
+    const name = document.getElementById('cs-name').value.trim();
+    const wss = document.getElementById('cs-wss').value.trim();
+    const tags = document.getElementById('cs-tags').value.trim();
+    const customId = document.getElementById('cs-id').value.trim();
+    const errEl = document.getElementById('cs-error');
+    const btn = document.getElementById('cs-submit');
+
+    if (!name) {
+      errEl.textContent = 'Name is required';
+      errEl.style.display = '';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating\u2026';
+    errEl.style.display = 'none';
+
+    try {
+      const body = { name, tags };
+      if (wss) body.websocket_url = wss;
+      if (customId) body.id = customId;
+
+      const res = await fetch('/api/admin/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Failed to create server';
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Create';
+        return;
+      }
+
+      closeCreateServerModal();
+      fetchData();
+    } catch (err) {
+      errEl.textContent = 'Network error: ' + err.message;
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Create';
+    }
+  }
+
   async function fetchAnalytics() {
     try {
       const res = await fetch('/api/admin/analytics', { cache: 'no-store' });
@@ -2163,6 +2337,34 @@ const ADMIN_HTML = `<!DOCTYPE html>
   scheduleRefresh();
   setInterval(fetchIrcData, 60000); // IRC data refreshes every 60s
 </script>
+
+<!-- Create Server Modal -->
+<div id="createServerModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeCreateServerModal()">
+  <div class="modal">
+    <div class="modal-title">Register Server</div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-name">Name *</label>
+      <input class="modal-input" id="cs-name" type="text" placeholder="e.g. My AI Team" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-wss">WebSocket URL</label>
+      <input class="modal-input" id="cs-wss" type="text" placeholder="wss://irc.yourdomain.com" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-tags">Tags</label>
+      <input class="modal-input" id="cs-tags" type="text" placeholder="private,agents (comma-separated)" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-id">Custom ID (optional)</label>
+      <input class="modal-input" id="cs-id" type="text" placeholder="auto-generated if empty" autocomplete="off">
+    </div>
+    <div class="modal-error" id="cs-error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeCreateServerModal()">Cancel</button>
+      <button class="btn-primary" id="cs-submit" onclick="submitCreateServer()">Create</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
