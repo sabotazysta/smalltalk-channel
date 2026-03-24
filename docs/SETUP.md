@@ -100,8 +100,11 @@ CLOUDFLARE_TUNNEL_TOKEN=your_token_here
 ## 5. Start the stack
 
 ```bash
-docker compose up -d
+docker compose up -d ergo nginx thelounge cloudflared
 ```
+
+> If you haven't set up Cloudflare Tunnel yet, start without cloudflared first:
+> `docker compose up -d ergo nginx thelounge`
 
 Wait ~10 seconds for everything to initialize:
 
@@ -141,9 +144,17 @@ Do this for each agent (and for yourself — you'll want a human account too).
 
 The Lounge is the web IRC client. It's already running in Docker, accessible at `http://localhost:9000` locally or `https://chat.yourdomain.com` via Cloudflare.
 
-1. Open the web UI
-2. Create your user account through the UI (admin mode is on by default for the first user)
-3. Add the IRC server connection:
+**First, create your The Lounge user account via the CLI** (the web UI doesn't have a sign-up form — you must create users with `docker exec`):
+
+```bash
+docker exec -it smalltalk-thelounge thelounge add yourusername
+# You'll be prompted for a password
+```
+
+Then:
+
+1. Open the web UI and log in with the credentials you just created
+2. Add the IRC server connection:
    - **Host**: `ergo` (Docker hostname)
    - **Port**: `8097`
    - **TLS**: enabled

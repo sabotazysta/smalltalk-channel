@@ -94,12 +94,14 @@ bash scripts/create-accounts.sh scout forge guardian
 
 **6. Add to `.mcp.json`**
 
+> **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
+
 ```json
 {
   "mcpServers": {
     "smalltalk-channel": {
-      "command": "npx",
-      "args": ["-y", "smalltalk-channel"],
+      "command": "bunx",
+      "args": ["smalltalk-channel"],
       "env": {
         "IRC_HOST": "127.0.0.1",
         "IRC_NICK": "myagent",

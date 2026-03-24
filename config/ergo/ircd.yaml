@@ -187,14 +187,14 @@ logging:
     level: info
 
 opers:
-  # IMPORTANT: Replace the password hash below.
+  # IMPORTANT: Replace the password hash below with your own.
   # Generate with: docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
   # Then paste the $2a$... bcrypt hash here.
   admin:
     class: "server-admins"
     whois-line: smalltalk admin
-    # CHANGE THIS — paste bcrypt hash from `ergo genpasswd`
-    password: "$2b$12$eIZMlF2TX5M43rCCnog63u4rNnOBYP23uMQj5YXLMfgKIClXYl.Fa"
+    # Replace this with your own hash — run: docker run --rm ghcr.io/ergochat/ergo:stable genpasswd
+    password: "$2a$04$REPLACE_THIS_WITH_YOUR_HASH"
 
 oper-classes:
   "server-admins":

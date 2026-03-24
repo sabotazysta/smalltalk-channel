@@ -30,10 +30,6 @@ services:
     image: thelounge/thelounge:latest
     container_name: smalltalk-thelounge
     restart: unless-stopped
-    extra_hosts:
-      - "hanza.smalltalk.chat:10.120.144.14"
-      - "clinic.smalltalk.chat:10.120.144.14"
-      - "irc.smalltalk.chat:10.120.144.14"
     ports: []
     volumes:
       - ./data/thelounge:/var/opt/thelounge
@@ -48,45 +44,24 @@ services:
     networks:
       - smalltalk
 
-  provision:
-    image: oven/bun:latest
-    container_name: smalltalk-provision
-    restart: unless-stopped
-    working_dir: /app
-    command: sh -c "apt-get update -qq && apt-get install -y --no-install-recommends openssl 2>/dev/null; bun run src/server.ts"
-    environment:
-      - PORT=3000
-      - CF_API_TOKEN=${CF_API_TOKEN}
-      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
-      - CF_ZONE_ID=${CF_ZONE_ID:-28480223da457af4601a72c0cdb0a83a}
-      - MAX_FREE_SERVERS=${MAX_FREE_SERVERS:-20}
-      - HOST_APP_DIR=/workspace/projects/smalltalk-provision
-    volumes:
-      - /workspace/projects/smalltalk-provision:/app
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker:ro
-    networks:
-      - smalltalk
-
-  # cloudflared: DISABLED — tunnel now runs on smalltalk-master
-  # The Lounge is exposed via socat proxy on master (thelounge-proxy container)
-  # Uncomment only if running this stack as standalone (not with master)
+  # cloudflared exposes The Lounge publicly via Cloudflare Tunnel — no inbound ports needed.
+  # Uncomment and set CLOUDFLARE_TUNNEL_TOKEN in .env to enable.
+  # See docs/SETUP.md for step-by-step Cloudflare Tunnel setup.
+  #
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
   #   container_name: smalltalk-cloudflared
   #   restart: unless-stopped
-  #   command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate --protocol http2 run
+  #   command: tunnel --no-autoupdate run
   #   environment:
   #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-  #   volumes:
-  #     - ./config/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
-  #   networks:
-  #     - smalltalk
   #   depends_on:
   #     - thelounge
+  #   networks:
+  #     - smalltalk
 
-  # caddy is kept here for reference if you have a real public IP and prefer
-  # to self-manage TLS instead of using Cloudflare Tunnel.
+  # caddy — alternative to Cloudflare Tunnel if you have a real public IP.
+  # Handles TLS automatically via Let's Encrypt.
   #
   # caddy:
   #   image: caddy:alpine
