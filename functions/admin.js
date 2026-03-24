@@ -615,6 +615,26 @@ const ADMIN_HTML = `<!DOCTYPE html>
       font-size: 12px;
     }
 
+        /* ---- Edit button ---- */
+    .btn-edit {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      white-space: nowrap;
+      margin-right: 4px;
+    }
+
+    .btn-edit:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(100,160,255,0.07);
+    }
+
         /* ---- Delete button ---- */
     .btn-delete {
       background: transparent;
@@ -1739,6 +1759,13 @@ const ADMIN_HTML = `<!DOCTYPE html>
             <span class="wss-url" title="\${escHtml(s.websocket_url || '')}">\${escHtml(s.websocket_url || '—')}</span>
           </td>
           <td>
+            <button class="btn-edit"
+              data-id="\${serverId}"
+              data-name="\${escHtml(s.name||'')}"
+              data-wss="\${escHtml(s.websocket_url||'')}"
+              data-tags="\${escHtml(Array.isArray(s.tags)?s.tags.join(','):(s.tags||''))}"
+              onclick="var d=this.dataset;showEditServerModal(d.id,d.name,d.wss,d.tags);event.stopPropagation()"
+              title="Edit server">edit</button>
             <button class="btn-delete" onclick="deleteServer('\${serverId}', this)" title="Delete server">delete</button>
           </td>
         </tr>
@@ -2299,6 +2326,80 @@ const ADMIN_HTML = `<!DOCTYPE html>
     }
   }
 
+  // ---- Edit Server Modal ----
+
+  function showEditServerModal(id, name, websocketUrl, tags) {
+    document.getElementById('editServerModal').style.display = 'flex';
+    document.getElementById('es-id-val').textContent = id;
+    document.getElementById('es-name').value = name || '';
+    document.getElementById('es-wss').value = websocketUrl || '';
+    document.getElementById('es-tags').value = tags || '';
+    document.getElementById('es-error').style.display = 'none';
+    document.getElementById('es-submit').disabled = false;
+    document.getElementById('es-submit').textContent = 'Save';
+    document.getElementById('es-modal-id').value = id;
+    setTimeout(function() { document.getElementById('es-name').focus(); }, 50);
+  }
+
+  function closeEditServerModal() {
+    document.getElementById('editServerModal').style.display = 'none';
+  }
+
+  async function submitEditServer() {
+    const id = document.getElementById('es-modal-id').value;
+    const name = document.getElementById('es-name').value.trim();
+    const wss = document.getElementById('es-wss').value.trim();
+    const tags = document.getElementById('es-tags').value.trim();
+    const errEl = document.getElementById('es-error');
+    const btn = document.getElementById('es-submit');
+
+    if (name && name.length < 2) {
+      errEl.textContent = 'Name must be at least 2 characters';
+      errEl.style.display = '';
+      return;
+    }
+    if (wss && !wss.startsWith('ws')) {
+      errEl.textContent = 'WebSocket URL must start with ws';
+      errEl.style.display = '';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving\u2026';
+    errEl.style.display = 'none';
+
+    try {
+      const body = {};
+      if (name) body.name = name;
+      if (wss) body.websocket_url = wss;
+      body.tags = tags;
+
+      const res = await fetch('/api/admin/servers/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Failed to update server';
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Save';
+        return;
+      }
+
+      closeEditServerModal();
+      fetchData();
+    } catch (err) {
+      errEl.textContent = 'Network error: ' + err.message;
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  }
+
   async function fetchAnalytics() {
     try {
       const res = await fetch('/api/admin/analytics', { cache: 'no-store' });
@@ -2362,6 +2463,35 @@ const ADMIN_HTML = `<!DOCTYPE html>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeCreateServerModal()">Cancel</button>
       <button class="btn-primary" id="cs-submit" onclick="submitCreateServer()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Server Modal -->
+<div id="editServerModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeEditServerModal()">
+  <div class="modal">
+    <div class="modal-title">Edit Server</div>
+    <div class="modal-field">
+      <label class="modal-label">Server ID</label>
+      <div id="es-id-val" style="font-size:12px;color:var(--text-muted);padding:4px 0;font-family:monospace"></div>
+      <input type="hidden" id="es-modal-id">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-name">Name</label>
+      <input class="modal-input" id="es-name" type="text" placeholder="e.g. My AI Team" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-wss">WebSocket URL</label>
+      <input class="modal-input" id="es-wss" type="text" placeholder="wss://irc.yourdomain.com" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-tags">Tags</label>
+      <input class="modal-input" id="es-tags" type="text" placeholder="private,agents (comma-separated)" autocomplete="off">
+    </div>
+    <div class="modal-error" id="es-error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeEditServerModal()">Cancel</button>
+      <button class="btn-primary" id="es-submit" onclick="submitEditServer()">Save</button>
     </div>
   </div>
 </div>
