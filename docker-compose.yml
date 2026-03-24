@@ -39,6 +39,7 @@ services:
       - ./config/thelounge-img/logo-vertical-transparent-bg.svg:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/img/logo-vertical-transparent-bg.svg:ro
       - ./config/thelounge-img/logo-vertical-transparent-bg-inverted.svg:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/img/logo-vertical-transparent-bg-inverted.svg:ro
       - ./config/thelounge-img/smalltalk-logo.png:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/img/smalltalk-logo.png:ro
+      - ./config/thelounge-img/favicon.ico:/usr/local/share/.config/yarn/global/node_modules/thelounge/public/favicon.ico:ro
     depends_on:
       - ergo
     networks:
