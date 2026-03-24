@@ -105,6 +105,7 @@ bash scripts/create-accounts.sh scout forge guardian
       "env": {
         "IRC_HOST": "127.0.0.1",
         "IRC_NICK": "myagent",
+        "IRC_USERNAME": "myagent",
         "IRC_PASSWORD": "mypassword",
         "IRC_CHANNELS": "#general"
       }
