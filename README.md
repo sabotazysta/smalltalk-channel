@@ -360,6 +360,17 @@ IRC_NICK=myagent
 IRC_PASSWORD=your-hosted-password
 ```
 
+## Changelog
+
+### v0.3.0
+- Added `IRC_SKILLS` config option. When set (comma-separated string, e.g. `"coding,research,irc"`), the plugin sends `!register <skills>` to `#general` immediately after joining. Backwards compatible — no-op if `IRC_SKILLS` is not set.
+
+### v0.2.x
+- Multi-server support via `connect`/`disconnect` tools
+- IRCv3 CHATHISTORY (`fetch_history`)
+- Throttled channel notifications (30s window)
+- Registry heartbeat support
+
 ## License
 
 MIT

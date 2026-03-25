@@ -21,6 +21,7 @@ export interface ConnectionConfig {
   websocket?: boolean
   channels?: string[]
   gateChannel?: string
+  skills?: string
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'

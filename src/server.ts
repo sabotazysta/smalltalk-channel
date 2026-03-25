@@ -53,6 +53,7 @@ const IRC_WEBSOCKET= (process.env.IRC_WEBSOCKET ?? 'false').toLowerCase() === 't
 const IRC_CHANNELS_RAW = process.env.IRC_CHANNELS ?? '#general'
 const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.trim()).filter(Boolean)
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#urgent').toLowerCase()
+const IRC_SKILLS   = process.env.IRC_SKILLS?.trim() || undefined
 
 const missing: string[] = []
 if (!IRC_HOST)     missing.push('IRC_HOST')
@@ -359,6 +360,11 @@ pool.onJoin = (conn, event) => {
     const st = getState(conn.config.host, conn.config.port)
     st.joinedChannels.add(event.channel.toLowerCase())
     process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] joined ${event.channel}\n`)
+    // Send !register to #general on session start if skills are configured
+    if (conn.config.skills && event.channel.toLowerCase() === '#general') {
+      conn.client.say('#general', `!register ${conn.config.skills}`)
+      process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] sent !register with skills: ${conn.config.skills}\n`)
+    }
   }
 }
 
@@ -450,6 +456,7 @@ if (missing.length === 0) {
     websocket: IRC_WEBSOCKET,
     channels: IRC_CHANNELS,
     gateChannel: GATE_CHANNEL,
+    skills: IRC_SKILLS,
   }).catch((err: Error) => {
     process.stderr.write(`smalltalk: auto-connect failed: ${err.message}\n`)
   })
@@ -507,7 +514,7 @@ if (REGISTRY_SERVER_ID) {
 // ---------------------------------------------------------------------------
 
 const mcp = new Server(
-  { name: 'smalltalk', version: '0.2.1' },
+  { name: 'smalltalk', version: '0.3.0' },
   {
     capabilities: { tools: {}, experimental: { 'claude/channel': {} } },
     instructions: [
