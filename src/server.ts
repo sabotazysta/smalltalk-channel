@@ -467,6 +467,38 @@ if (missing.length === 0) {
   )
 }
 
+// Optional second server (IRC_HOST_2, IRC_PORT_2, IRC_NICK_2, IRC_USERNAME_2, IRC_PASSWORD_2,
+//   IRC_TLS_2, IRC_WEBSOCKET_2, IRC_CHANNELS_2, IRC_GATE_CHANNEL_2)
+const IRC_HOST_2 = process.env.IRC_HOST_2
+if (IRC_HOST_2) {
+  const nick2     = process.env.IRC_NICK_2     ?? IRC_NICK!
+  const user2     = process.env.IRC_USERNAME_2  ?? IRC_USERNAME!
+  const pass2     = process.env.IRC_PASSWORD_2
+  const port2     = parseInt(process.env.IRC_PORT_2 ?? '6667', 10)
+  const tls2      = (process.env.IRC_TLS_2      ?? 'false').toLowerCase() === 'true'
+  const ws2       = (process.env.IRC_WEBSOCKET_2 ?? 'false').toLowerCase() === 'true'
+  const ch2raw    = process.env.IRC_CHANNELS_2  ?? '#general'
+  const ch2       = ch2raw.split(',').map((c: string) => c.trim()).filter(Boolean)
+  const gate2     = (process.env.IRC_GATE_CHANNEL_2 ?? GATE_CHANNEL).toLowerCase()
+  if (!pass2) {
+    process.stderr.write(`smalltalk: IRC_HOST_2 set but IRC_PASSWORD_2 missing — skipping second server\n`)
+  } else {
+    pool.connect({
+      host: IRC_HOST_2,
+      port: port2,
+      nick: nick2,
+      username: user2,
+      password: pass2,
+      tls: tls2,
+      websocket: ws2,
+      channels: ch2,
+      gateChannel: gate2,
+    }).catch((err: Error) => {
+      process.stderr.write(`smalltalk: auto-connect (server 2) failed: ${err.message}\n`)
+    })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registry heartbeat
 // ---------------------------------------------------------------------------
