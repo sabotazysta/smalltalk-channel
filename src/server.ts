@@ -242,8 +242,8 @@ function handleMessage(conn: Connection, event: {
   const gateChannel = (conn.config.gateChannel ?? '#urgent').toLowerCase()
   const myNick = conn.config.nick
 
-  // CHATHISTORY batch collection
-  if (event.batch?.type === 'chathistory') {
+  // CHATHISTORY batch collection (handle both draft/chathistory and chathistory batch types)
+  if (event.batch?.type === 'chathistory' || event.batch?.type === 'draft/chathistory') {
     const batchChannel = st.batchIdToChannel.get(event.batch.id)
     if (batchChannel) {
       const pending = st.pendingHistory.get(batchChannel)

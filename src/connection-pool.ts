@@ -96,7 +96,8 @@ export class ConnectionPool {
     const client = new IRC.Client()
 
     // Request IRCv3 capabilities needed for CHATHISTORY and batched responses
-    client.requestCap(['batch', 'draft/chathistory', 'server-time', 'message-tags'])
+    // Request both draft/ and non-draft variants for compatibility across IRC servers
+    client.requestCap(['batch', 'draft/batch', 'draft/chathistory', 'server-time', 'draft/server-time', 'message-tags'])
 
     const conn: Connection = {
       config,
@@ -165,8 +166,15 @@ export class ConnectionPool {
     client.on('batch start chathistory', (event: { id: string; type: string; params: string[] }) => {
       this.onBatchStartChathistory?.(conn, event)
     })
+    // Also handle draft/chathistory batch type (used by some IRC servers including ergo)
+    client.on('batch start draft/chathistory', (event: { id: string; type: string; params: string[] }) => {
+      this.onBatchStartChathistory?.(conn, event)
+    })
 
     client.on('batch end chathistory', (event: { id: string; type: string; params: string[] }) => {
+      this.onBatchEndChathistory?.(conn, event)
+    })
+    client.on('batch end draft/chathistory', (event: { id: string; type: string; params: string[] }) => {
       this.onBatchEndChathistory?.(conn, event)
     })
 
