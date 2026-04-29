@@ -554,7 +554,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
     .drawer-inner {
       display: flex;
       gap: 0;
+      animation: drawerIn 0.18s ease;
     }
+
+    @keyframes drawerIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     .drawer-col {
       flex: 1;
       padding: 12px 16px;
@@ -606,6 +613,26 @@ const ADMIN_HTML = `<!DOCTYPE html>
       padding: 12px 6px;
       color: var(--text-muted);
       font-size: 12px;
+    }
+
+        /* ---- Edit button ---- */
+    .btn-edit {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      white-space: nowrap;
+      margin-right: 4px;
+    }
+
+    .btn-edit:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(100,160,255,0.07);
     }
 
         /* ---- Delete button ---- */
@@ -747,11 +774,208 @@ const ADMIN_HTML = `<!DOCTYPE html>
       word-break: break-word;
     }
 
+    .msg-ch {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-size: 11px;
+      flex-shrink: 0;
+      width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .msg-loading {
       padding: 20px;
       text-align: center;
       color: var(--text-muted);
       font-size: 12px;
+    }
+
+    .msg-line:hover {
+      background: rgba(255,255,255,0.04);
+    }
+
+    .msg-gap {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 4px 12px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin: 2px 0;
+      user-select: none;
+    }
+
+    .usr-layout {
+      display: flex;
+      height: calc(100vh - 220px);
+      min-height: 400px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .usr-ch-list {
+      width: 180px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      background: rgba(255,255,255,0.015);
+    }
+
+    .usr-ch-server-header {
+      padding: 10px 12px 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+
+    .usr-ch-item {
+      padding: 7px 14px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(255,255,255,0.025);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .usr-ch-item:hover {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .usr-ch-item.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .usr-msg-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      min-width: 0;
+    }
+
+    .srv-two-col {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+    }
+
+    .srv-two-col > .section {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ---- Modal ---- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 28px 32px;
+      min-width: 400px;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      animation: slideUp 0.15s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(12px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 20px;
+    }
+    .modal-field {
+      margin-bottom: 16px;
+    }
+    .modal-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .modal-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      padding: 8px 10px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .modal-input:focus {
+      border-color: var(--accent);
+    }
+    .modal-input::placeholder {
+      color: var(--text-muted);
+    }
+    .modal-footer {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-cancel {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+    }
+    .btn-cancel:hover { color: var(--text-primary); }
+    .modal-error {
+      color: var(--red);
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
     }
 
     .user-badge {
@@ -809,6 +1033,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
       display: flex;
       align-items: center;
       gap: 8px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
     }
 
     #breadcrumb a {
@@ -855,7 +1083,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="header-left">
+  <div class="header-left" style="cursor:pointer" onclick="navServers()">
     <div class="logo-dot"></div>
     <div class="logo-text">smalltalk <span>admin</span></div>
   </div>
@@ -912,7 +1140,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
   <div class="section">
     <div class="section-header">
       <div class="section-title">Hosted Servers</div>
-      <span class="section-count" id="serverCount">0</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-count" id="serverCount">0</span>
+        <button class="btn-primary" style="padding:5px 12px;font-size:12px" onclick="showCreateServerModal()">+ server</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table>
@@ -1003,6 +1234,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
         <!-- stat cards injected here -->
       </div>
     </div>
+    <div class="srv-two-col">
     <!-- Channels -->
     <div class="section">
       <div class="section-header">
@@ -1039,6 +1271,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
         </table>
       </div>
     </div>
+    </div><!-- /srv-two-col -->
   </main>
 </div><!-- /page-server -->
 
@@ -1058,21 +1291,21 @@ const ADMIN_HTML = `<!DOCTYPE html>
 
 <div id="page-user" style="display:none">
   <main style="max-width:1280px; margin: 0 auto; padding: 32px;">
-    <div class="section">
+    <div class="section" style="margin-bottom:16px">
       <div class="section-header">
         <div class="section-title" id="usr-title">—</div>
         <div style="display:flex;gap:8px;align-items:center">
+          <span class="section-count" id="usr-msg-count">0</span>
           <button class="btn-delete" id="usr-ban-btn">ban</button>
         </div>
       </div>
     </div>
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">Message History</div>
-        <span class="section-count" id="usr-msg-count">0</span>
+    <div class="usr-layout">
+      <div class="usr-ch-list" id="usr-ch-list">
+        <div class="msg-loading">loading...</div>
       </div>
-      <div class="table-wrap">
-        <div id="usr-messages" class="messages-inner" style="max-height:600px"></div>
+      <div class="usr-msg-panel" id="usr-messages">
+        <div class="msg-loading">loading...</div>
       </div>
     </div>
   </main>
@@ -1102,7 +1335,41 @@ const ADMIN_HTML = `<!DOCTYPE html>
   let currentServer = null;
   let currentChannel = null;
 
-  function navServers() {
+  function setHash(hash) {
+    history.pushState(null, '', '#' + hash);
+  }
+
+  function _routeFromHash(hash) {
+    if (!hash) { navServers(true); return; }
+    const parts = hash.split('/');
+    const type = parts[0];
+    if (type === 'server' && parts[1]) {
+      const serverId = decodeURIComponent(parts[1]);
+      const server = (lastData || []).find(function(s) { return s.id === serverId; });
+      if (server) navServer(server, true);
+    } else if (type === 'user' && parts[1]) {
+      if (parts.length >= 3) {
+        const serverId = decodeURIComponent(parts[1]);
+        const nick = decodeURIComponent(parts[2]);
+        const server = (lastData || []).find(function(s) { return s.id === serverId; });
+        navUser(nick, server || null, true);
+      } else {
+        navUser(decodeURIComponent(parts[1]), null, true);
+      }
+    } else if (type === 'channel' && parts.length >= 3) {
+      const serverId = decodeURIComponent(parts[1]);
+      const server = (lastData || []).find(function(s) { return s.id === serverId; });
+      const channelPath = parts.slice(1).join('/');
+      if (server) navChannel(server, channelPath, true);
+    }
+  }
+
+  window.addEventListener('popstate', function() {
+    const hash = location.hash.replace(/^#/, '');
+    _routeFromHash(hash);
+  });
+
+  function navServers(noHash) {
     currentView = 'servers';
     currentServer = null;
     currentChannel = null;
@@ -1111,9 +1378,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
     document.getElementById('page-channel').style.display = 'none';
     document.getElementById('page-user').style.display = 'none';
     document.getElementById('breadcrumb').style.display = 'none';
+    if (!noHash) history.pushState(null, '', location.pathname);
   }
 
-  function navServer(server) {
+  function navServer(server, noHash) {
     currentView = 'server';
     currentServer = server;
     currentChannel = null;
@@ -1127,10 +1395,11 @@ const ADMIN_HTML = `<!DOCTYPE html>
     document.getElementById('bc-server').style.display = '';
     document.getElementById('bc-sep2').style.display = 'none';
     document.getElementById('bc-channel').style.display = 'none';
+    if (!noHash) setHash('server/' + encodeURIComponent(server.id || server.name));
     loadServerDetail(server);
   }
 
-  function navUser(nick, serverObj) {
+  function navUser(nick, serverObj, noHash) {
     currentView = 'user';
     const srv = serverObj || currentServer;
     document.getElementById('page-servers').style.display = 'none';
@@ -1148,10 +1417,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
     document.getElementById('bc-sep2').style.display = '';
     document.getElementById('bc-channel').textContent = '@' + nick;
     document.getElementById('bc-channel').style.display = '';
+    if (!noHash) {
+      const srvForHash = srv || currentServer;
+      setHash('user/' + (srvForHash ? encodeURIComponent(srvForHash.id || srvForHash.name) + '/' : '') + encodeURIComponent(nick));
+    }
     loadUserPage(nick);
   }
 
-  function navChannel(serverObj, channelPath) {
+  function navChannel(serverObj, channelPath, noHash) {
     currentView = 'channel';
     currentChannel = { server: serverObj, name: channelPath };
     document.getElementById('page-servers').style.display = 'none';
@@ -1167,6 +1440,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
     const parts = channelPath.split('/');
     document.getElementById('bc-channel').textContent = parts.slice(1).join('/');
     document.getElementById('bc-channel').style.display = '';
+    if (!noHash) setHash('channel/' + channelPath);
     loadChannelPage(serverObj, channelPath);
   }
 
@@ -1201,7 +1475,8 @@ const ADMIN_HTML = `<!DOCTYPE html>
       const wssHost = (server.websocket_url || '').replace(/^wss?:\\/\\//, '').split('/')[0].toLowerCase();
 
       function matchesServer(ircServer) {
-        const s = (ircServer || '').toLowerCase();
+        if (!ircServer) return false;
+        const s = ircServer.toLowerCase();
         return s.includes(srvName) || srvName.includes(s) ||
                s.includes(srvId) || srvId.includes(s) ||
                s.includes(wssHost) || wssHost.includes(s);
@@ -1209,8 +1484,6 @@ const ADMIN_HTML = `<!DOCTYPE html>
 
       let channels = allChannels.filter(c => matchesServer(c.server));
       let users = allUsers.filter(u => matchesServer(u.server));
-      if (channels.length === 0 && allChannels.length > 0) channels = allChannels;
-      if (users.length === 0 && allUsers.length > 0) users = allUsers;
 
       document.getElementById('srv-ch-count').textContent = channels.length;
       if (!channels.length) {
@@ -1266,22 +1539,121 @@ const ADMIN_HTML = `<!DOCTYPE html>
     }
   }
 
+  let usrAllMessages = [];
+  let usrCurrentNick = null;
+
   async function loadUserPage(nick) {
+    usrCurrentNick = nick;
     document.getElementById('usr-title').textContent = nick;
     const banBtn = document.getElementById('usr-ban-btn');
     banBtn.disabled = false;
     banBtn.textContent = 'ban';
     banBtn.onclick = function() { banUser(nick, banBtn); };
+    document.getElementById('usr-ch-list').innerHTML = '<div class="msg-loading">loading...</div>';
     document.getElementById('usr-messages').innerHTML = '<div class="msg-loading">loading...</div>';
     document.getElementById('usr-msg-count').textContent = '0';
     try {
       const data = await ircFetch('/users/' + encodeURIComponent(nick) + '/messages');
-      const messages = data.messages || [];
-      document.getElementById('usr-msg-count').textContent = messages.length;
-      renderMessages(messages, document.getElementById('usr-messages'));
+      usrAllMessages = data.messages || [];
+      document.getElementById('usr-msg-count').textContent = usrAllMessages.length;
+      renderUsrChannelList(nick, usrAllMessages);
+      renderUsrMessages(nick, usrAllMessages, 'all', null);
     } catch (err) {
       document.getElementById('usr-messages').innerHTML = '<div class="msg-loading" style="color:var(--red)">failed: ' + escHtml(err.message) + '</div>';
     }
+  }
+
+  function renderUsrChannelList(nick, messages) {
+    const chList = document.getElementById('usr-ch-list');
+    const byServer = {};
+    messages.forEach(function(m) {
+      const srv = m.server || '?';
+      if (!byServer[srv]) byServer[srv] = { channels: [], dms: [] };
+      const ch = m.channel || '';
+      if (ch.startsWith('#')) {
+        if (byServer[srv].channels.indexOf(ch) === -1) byServer[srv].channels.push(ch);
+      } else if (ch && ch.toLowerCase() !== (nick || '').toLowerCase()) {
+        if (byServer[srv].dms.indexOf(ch) === -1) byServer[srv].dms.push(ch);
+      }
+    });
+    let html = \`<div class="usr-ch-item active" id="usr-ch-all" onclick="usrFilterAll()">All messages</div>\`;
+    Object.keys(byServer).forEach(function(srv) {
+      const d = byServer[srv];
+      html += \`<div class="usr-ch-server-header">\${escHtml(srv)}</div>\`;
+      d.channels.forEach(function(ch) {
+        html += \`<div class="usr-ch-item" onclick="usrFilterChannel('\${escHtml(srv)}','\${escHtml(ch)}')" data-key="\${escHtml(srv + '/' + ch)}">\${escHtml(ch)}</div>\`;
+      });
+      d.dms.forEach(function(dm) {
+        html += \`<div class="usr-ch-item" onclick="usrFilterDm('\${escHtml(dm)}')" data-key="dm:\${escHtml(dm)}">@\${escHtml(dm)}</div>\`;
+      });
+    });
+    chList.innerHTML = html;
+  }
+
+  function usrSetActive(key) {
+    document.querySelectorAll('.usr-ch-item').forEach(function(el) { el.classList.remove('active'); });
+    const target = key ? document.querySelector('[data-key="' + key + '"]') : document.getElementById('usr-ch-all');
+    if (target) target.classList.add('active');
+  }
+
+  function usrFilterAll() {
+    usrSetActive(null);
+    renderUsrMessages(usrCurrentNick, usrAllMessages, 'all', null);
+  }
+
+  function usrFilterChannel(srv, ch) {
+    usrSetActive(srv + '/' + ch);
+    const filtered = usrAllMessages.filter(function(m) { return m.server === srv && m.channel === ch; });
+    renderUsrMessages(usrCurrentNick, filtered, 'channel', null);
+  }
+
+  async function usrFilterDm(correspondent) {
+    usrSetActive('dm:' + correspondent);
+    const msgWrap = document.getElementById('usr-messages');
+    msgWrap.innerHTML = '<div class="msg-loading">loading...</div>';
+    try {
+      const data = await ircFetch('/users/' + encodeURIComponent(usrCurrentNick) + '/dm/' + encodeURIComponent(correspondent) + '/messages');
+      renderUsrMessages(usrCurrentNick, data.messages || [], 'dm', correspondent);
+    } catch (err) {
+      msgWrap.innerHTML = '<div class="msg-loading" style="color:var(--red)">failed: ' + escHtml(err.message) + '</div>';
+    }
+  }
+
+  function renderUsrMessages(nick, messages, mode, correspondent) {
+    const msgWrap = document.getElementById('usr-messages');
+    document.getElementById('usr-msg-count').textContent = messages.length;
+    if (!messages.length) {
+      msgWrap.innerHTML = '<div class="msg-loading">no messages</div>';
+      return;
+    }
+    const shown = messages.slice(-200);
+    let html = '';
+    if (mode === 'channel') {
+      shown.forEach(function(m, i) {
+        if (i > 0) html += '<div class="msg-gap">\u00b7\u00b7\u00b7</div>';
+        const timeStr = escHtml(formatMsgTime(m.timestamp));
+        const txt = escHtml(m.text || m.message || '');
+        html += \`<div class="msg-line" style="padding:5px 12px"><span class="msg-time">\${timeStr}</span><span class="msg-nick" style="color:var(--accent)">\${escHtml(nick)}</span><span class="msg-text">\${txt}</span></div>\`;
+      });
+    } else if (mode === 'dm') {
+      shown.forEach(function(m) {
+        const sender = m.nick || m.sender || '?';
+        const isMe = sender.toLowerCase() === (nick || '').toLowerCase();
+        const nickColor = isMe ? 'var(--accent)' : '#7eb8f7';
+        const timeStr = escHtml(formatMsgTime(m.timestamp));
+        const txt = escHtml(m.text || m.message || '');
+        html += \`<div class="msg-line" style="padding:5px 12px"><span class="msg-time">\${timeStr}</span><span class="msg-nick" style="color:\${nickColor}">\${escHtml(sender)}</span><span class="msg-text">\${txt}</span></div>\`;
+      });
+    } else {
+      shown.forEach(function(m) {
+        const timeStr = escHtml(formatMsgTime(m.timestamp));
+        const ch = \`<span class="msg-ch">\${m.channel ? escHtml(m.channel) : ''}</span>\`;
+        const txt = escHtml(m.text || m.message || '');
+        html += \`<div class="msg-line" style="padding:5px 12px"><span class="msg-time">\${timeStr}</span><span class="msg-nick" style="color:var(--accent)">\${escHtml(nick)}</span>\${ch}<span class="msg-text">\${txt}</span></div>\`;
+      });
+    }
+    msgWrap.innerHTML = html;
+    msgWrap.scrollTop = msgWrap.scrollHeight;
   }
 
   async function loadChannelPage(server, channelPath) {
@@ -1330,9 +1702,9 @@ const ADMIN_HTML = `<!DOCTYPE html>
   }
 
   function getStatus(server) {
-    if (!server.last_heartbeat) return 'offline';
+    if (!server.last_heartbeat) return 'unknown';
     const hb = formatHeartbeat(server.last_heartbeat);
-    if (!hb) return 'offline';
+    if (!hb) return 'unknown';
     const age = Date.now() - hb.getTime();
     if (age <= ACTIVE_THRESHOLD_MS) return 'online';
     if (age <= 60 * 60 * 1000) return 'stale'; // within 1h
@@ -1340,8 +1712,8 @@ const ADMIN_HTML = `<!DOCTYPE html>
   }
 
   function statusBadge(status) {
-    const labels = { online: 'online', offline: 'offline', stale: 'stale' };
-    return \`<span class="status-badge status-\${status}">\${labels[status]}</span>\`;
+    const labels = { online: 'online', offline: 'offline', stale: 'stale', unknown: 'unknown' };
+    return \`<span class="status-badge status-\${status}">\${labels[status] || status}</span>\`;
   }
 
   function renderTags(tagsStr) {
@@ -1386,6 +1758,13 @@ const ADMIN_HTML = `<!DOCTYPE html>
             <span class="wss-url" title="\${escHtml(s.websocket_url || '')}">\${escHtml(s.websocket_url || '—')}</span>
           </td>
           <td>
+            <button class="btn-edit"
+              data-id="\${serverId}"
+              data-name="\${escHtml(s.name||'')}"
+              data-wss="\${escHtml(s.websocket_url||'')}"
+              data-tags="\${escHtml(Array.isArray(s.tags)?s.tags.join(','):(s.tags||''))}"
+              onclick="var d=this.dataset;showEditServerModal(d.id,d.name,d.wss,d.tags);event.stopPropagation()"
+              title="Edit server">edit</button>
             <button class="btn-delete" onclick="deleteServer('\${serverId}', this)" title="Delete server">delete</button>
           </td>
         </tr>
@@ -1410,8 +1789,26 @@ const ADMIN_HTML = `<!DOCTYPE html>
     drawerRow.id = drawerId;
     drawerRow.className = 'server-drawer';
     drawerRow.innerHTML = \`<td colspan="\${colspan}"><div class="drawer-inner">
-      <div class="drawer-col"><div class="drawer-col-title">Channels</div><div class="drawer-list" id="drawer-ch-\${serverId}"><div class="drawer-loading">loading…</div></div></div>
-      <div class="drawer-col"><div class="drawer-col-title">Users</div><div class="drawer-list" id="drawer-usr-\${serverId}"><div class="drawer-loading">loading…</div></div></div>
+      <div class="drawer-col">
+        <div class="drawer-col-title">Channels</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Channel</th>
+            <th style="text-align:right;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Msgs</th>
+          </tr></thead>
+          <tbody id="drawer-ch-\${serverId}"><tr><td colspan="2" class="drawer-loading">loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="drawer-col">
+        <div class="drawer-col-title">Users</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Nick</th>
+            <th style="text-align:right;padding:4px 6px;color:var(--text-muted);font-weight:500;font-size:11px">Msgs</th>
+          </tr></thead>
+          <tbody id="drawer-usr-\${serverId}"><tr><td colspan="2" class="drawer-loading">loading…</td></tr></tbody>
+        </table>
+      </div>
     </div></td>\`;
     rowEl.insertAdjacentElement('afterend', drawerRow);
 
@@ -1425,9 +1822,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
 
       const srvName = (server.name || '').toLowerCase();
       const srvId = (server.id || '').toLowerCase();
-      const wssHost = (server.websocket_url || '').replace(/^wss?:\/\//, '').split('/')[0].toLowerCase();
+      const wssHost = (server.websocket_url || '').replace(/^wss?:\\/\\//, '').split('/')[0].toLowerCase();
       function matchesSrv(ircServer) {
-        const s = (ircServer || '').toLowerCase();
+        if (!ircServer) return false;
+        const s = ircServer.toLowerCase();
         return s.includes(srvName) || srvName.includes(s) ||
                s.includes(srvId) || srvId.includes(s) ||
                s.includes(wssHost) || wssHost.includes(s);
@@ -1435,41 +1833,39 @@ const ADMIN_HTML = `<!DOCTYPE html>
 
       let channels = allCh.filter(c => matchesSrv(c.server));
       let users = allUsr.filter(u => matchesSrv(u.server));
-      if (channels.length === 0 && allCh.length > 0) channels = allCh.slice(0, 10);
-      if (users.length === 0 && allUsr.length > 0) users = allUsr.slice(0, 10);
 
       const chEl = document.getElementById('drawer-ch-' + serverId);
       const usrEl = document.getElementById('drawer-usr-' + serverId);
       if (!chEl || !usrEl) return;
 
       if (!channels.length) {
-        chEl.innerHTML = '<div class="drawer-loading">no channels</div>';
+        chEl.innerHTML = '<tr><td colspan="2" class="drawer-loading">no channels</td></tr>';
       } else {
         chEl.innerHTML = channels.slice(0, 10).map(ch => {
           const name = escHtml(ch.channel || ch.name || '?');
           const chSrv = ch.server || '';
           const path = escHtml(chSrv) + '/' + escHtml(ch.channel || ch.name || '');
-          return \`<div class="drawer-row" onclick="navChannel(lastData.find(function(x){return x.id==='\${serverId}';}), '\${path}')">
-            <span class="drawer-row-name">\${name}</span>
-            <span class="drawer-row-count">\${ch.message_count ?? '—'}</span>
-          </div>\`;
+          return \`<tr style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer" onclick="navChannel(lastData.find(function(x){return x.id==='\${serverId}';}), '\${path}')" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <td style="padding:5px 6px;font-family:var(--font-mono);color:var(--accent)">\${name}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text-muted);font-size:11px;font-family:var(--font-mono)">\${ch.message_count ?? '—'}</td>
+          </tr>\`;
         }).join('');
       }
 
       if (!users.length) {
-        usrEl.innerHTML = '<div class="drawer-loading">no users</div>';
+        usrEl.innerHTML = '<tr><td colspan="2" class="drawer-loading">no users</td></tr>';
       } else {
         usrEl.innerHTML = users.slice(0, 10).map(u => {
           const nick = escHtml(u.nick || '?');
-          return \`<div class="drawer-row" onclick="navUser('\${nick}', lastData.find(function(x){return x.id==='\${serverId}';}))">
-            <span class="drawer-row-name">\${nick}</span>
-            <span class="drawer-row-count">\${formatNumber(u.message_count ?? 0)}</span>
-          </div>\`;
+          return \`<tr style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer" onclick="navUser('\${nick}', lastData.find(function(x){return x.id==='\${serverId}';}))" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <td style="padding:5px 6px;font-family:var(--font-mono);color:var(--accent)">\${nick}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text-muted);font-size:11px;font-family:var(--font-mono)">\${formatNumber(u.message_count ?? 0)}</td>
+          </tr>\`;
         }).join('');
       }
     } catch (err) {
       const chEl = document.getElementById('drawer-ch-' + serverId);
-      if (chEl) chEl.innerHTML = \`<div class="drawer-loading" style="color:var(--red)">\${escHtml(err.message)}</div>\`;
+      if (chEl) chEl.innerHTML = \`<tr><td colspan="2" class="drawer-loading" style="color:var(--red)">\${escHtml(err.message)}</td></tr>\`;
     }
   }
 
@@ -1861,6 +2257,147 @@ const ADMIN_HTML = `<!DOCTYPE html>
     }
   }
 
+  // ---- Create Server Modal ----
+
+  function showCreateServerModal() {
+    document.getElementById('createServerModal').style.display = 'flex';
+    document.getElementById('cs-name').value = '';
+    document.getElementById('cs-wss').value = '';
+    document.getElementById('cs-tags').value = '';
+    document.getElementById('cs-id').value = '';
+    document.getElementById('cs-error').style.display = 'none';
+    document.getElementById('cs-submit').disabled = false;
+    document.getElementById('cs-submit').textContent = 'Create';
+    setTimeout(function() { document.getElementById('cs-name').focus(); }, 50);
+  }
+
+  function closeCreateServerModal() {
+    document.getElementById('createServerModal').style.display = 'none';
+  }
+
+  async function submitCreateServer() {
+    const name = document.getElementById('cs-name').value.trim();
+    const wss = document.getElementById('cs-wss').value.trim();
+    const tags = document.getElementById('cs-tags').value.trim();
+    const customId = document.getElementById('cs-id').value.trim();
+    const errEl = document.getElementById('cs-error');
+    const btn = document.getElementById('cs-submit');
+
+    if (!name) {
+      errEl.textContent = 'Name is required';
+      errEl.style.display = '';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating\u2026';
+    errEl.style.display = 'none';
+
+    try {
+      const body = { name, tags };
+      if (wss) body.websocket_url = wss;
+      if (customId) body.id = customId;
+
+      const res = await fetch('/api/admin/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Failed to create server';
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Create';
+        return;
+      }
+
+      closeCreateServerModal();
+      fetchData();
+    } catch (err) {
+      errEl.textContent = 'Network error: ' + err.message;
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Create';
+    }
+  }
+
+  // ---- Edit Server Modal ----
+
+  function showEditServerModal(id, name, websocketUrl, tags) {
+    document.getElementById('editServerModal').style.display = 'flex';
+    document.getElementById('es-id-val').textContent = id;
+    document.getElementById('es-name').value = name || '';
+    document.getElementById('es-wss').value = websocketUrl || '';
+    document.getElementById('es-tags').value = tags || '';
+    document.getElementById('es-error').style.display = 'none';
+    document.getElementById('es-submit').disabled = false;
+    document.getElementById('es-submit').textContent = 'Save';
+    document.getElementById('es-modal-id').value = id;
+    setTimeout(function() { document.getElementById('es-name').focus(); }, 50);
+  }
+
+  function closeEditServerModal() {
+    document.getElementById('editServerModal').style.display = 'none';
+  }
+
+  async function submitEditServer() {
+    const id = document.getElementById('es-modal-id').value;
+    const name = document.getElementById('es-name').value.trim();
+    const wss = document.getElementById('es-wss').value.trim();
+    const tags = document.getElementById('es-tags').value.trim();
+    const errEl = document.getElementById('es-error');
+    const btn = document.getElementById('es-submit');
+
+    if (name && name.length < 2) {
+      errEl.textContent = 'Name must be at least 2 characters';
+      errEl.style.display = '';
+      return;
+    }
+    if (wss && !wss.startsWith('ws')) {
+      errEl.textContent = 'WebSocket URL must start with ws';
+      errEl.style.display = '';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving\u2026';
+    errEl.style.display = 'none';
+
+    try {
+      const body = {};
+      if (name) body.name = name;
+      if (wss) body.websocket_url = wss;
+      body.tags = tags;
+
+      const res = await fetch('/api/admin/servers/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Failed to update server';
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Save';
+        return;
+      }
+
+      closeEditServerModal();
+      fetchData();
+    } catch (err) {
+      errEl.textContent = 'Network error: ' + err.message;
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  }
+
   async function fetchAnalytics() {
     try {
       const res = await fetch('/api/admin/analytics', { cache: 'no-store' });
@@ -1899,6 +2436,63 @@ const ADMIN_HTML = `<!DOCTYPE html>
   scheduleRefresh();
   setInterval(fetchIrcData, 60000); // IRC data refreshes every 60s
 </script>
+
+<!-- Create Server Modal -->
+<div id="createServerModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeCreateServerModal()">
+  <div class="modal">
+    <div class="modal-title">Register Server</div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-name">Name *</label>
+      <input class="modal-input" id="cs-name" type="text" placeholder="e.g. My AI Team" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-wss">WebSocket URL</label>
+      <input class="modal-input" id="cs-wss" type="text" placeholder="wss://irc.yourdomain.com" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-tags">Tags</label>
+      <input class="modal-input" id="cs-tags" type="text" placeholder="private,agents (comma-separated)" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="cs-id">Custom ID (optional)</label>
+      <input class="modal-input" id="cs-id" type="text" placeholder="auto-generated if empty" autocomplete="off">
+    </div>
+    <div class="modal-error" id="cs-error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeCreateServerModal()">Cancel</button>
+      <button class="btn-primary" id="cs-submit" onclick="submitCreateServer()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Server Modal -->
+<div id="editServerModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeEditServerModal()">
+  <div class="modal">
+    <div class="modal-title">Edit Server</div>
+    <div class="modal-field">
+      <label class="modal-label">Server ID</label>
+      <div id="es-id-val" style="font-size:12px;color:var(--text-muted);padding:4px 0;font-family:monospace"></div>
+      <input type="hidden" id="es-modal-id">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-name">Name</label>
+      <input class="modal-input" id="es-name" type="text" placeholder="e.g. My AI Team" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-wss">WebSocket URL</label>
+      <input class="modal-input" id="es-wss" type="text" placeholder="wss://irc.yourdomain.com" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="es-tags">Tags</label>
+      <input class="modal-input" id="es-tags" type="text" placeholder="private,agents (comma-separated)" autocomplete="off">
+    </div>
+    <div class="modal-error" id="es-error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeEditServerModal()">Cancel</button>
+      <button class="btn-primary" id="es-submit" onclick="submitEditServer()">Save</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
