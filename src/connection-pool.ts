@@ -70,6 +70,7 @@ export class ConnectionPool {
     nick: string
     message: string
     time: Date | string | null
+    tags?: Record<string, string>
     batch?: { id: string; type: string; params: string[] }
   }) => void
 
@@ -127,6 +128,11 @@ export class ConnectionPool {
       this.onJoin?.(conn, event)
     })
 
+    client.on('invite', (event: { channel: string; nick: string }) => {
+      // Auto-join when invited — handles invite-only (+i) channels
+      client.join(event.channel)
+    })
+
     client.on('part', (event: { channel: string; nick: string }) => {
       if (event.nick === config.nick) {
         conn.channels.delete(event.channel.toLowerCase())
@@ -158,6 +164,7 @@ export class ConnectionPool {
       nick: string
       message: string
       time: Date | string | null
+      tags?: Record<string, string>
       batch?: { id: string; type: string; params: string[] }
     }) => {
       this.onMessage?.(conn, event)

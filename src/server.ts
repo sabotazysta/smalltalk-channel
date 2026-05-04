@@ -25,6 +25,7 @@ import { readFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
+import { verifyMessage, signMessage, type VerificationResult } from './verify.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -231,11 +232,12 @@ function emitThrottledSummary(channel: string, entry: ThrottleEntry, source?: st
 // Message routing
 // ---------------------------------------------------------------------------
 
-function handleMessage(conn: Connection, event: {
+async function handleMessage(conn: Connection, event: {
   target: string
   nick: string
   message: string
   time: Date | string | null
+  tags?: Record<string, string>
   batch?: { id: string; type: string; params: string[] }
 }) {
   const st = getState(conn.config.host, conn.config.port)
@@ -267,10 +269,21 @@ function handleMessage(conn: Connection, event: {
   // TIER 3: Own messages
   if (event.nick === myNick) return
 
+  // Signature verification — async, non-blocking to routing logic
+  let verificationResult: VerificationResult = { status: 'unverified' }
+  if (event.tags && Object.keys(event.tags).length > 0) {
+    const tagsMap = new Map(Object.entries(event.tags))
+    verificationResult = await verifyMessage(tagsMap, event.nick, event.target, event.message)
+  }
+  const verifiedPrefix = verificationResult.status === 'verified' ? '[verified] '
+    : verificationResult.status === 'stranger' ? '[stranger] '
+    : verificationResult.status === 'verification_failed' ? '[⚠️unverified] '
+    : ''  // unverified = no prefix (pre-flag-day default, clean output)
+
   // TIER 1: Direct messages
   if (isDM) {
     emitHighPriority({
-      content: `${prefix}[DM from ${event.nick}]: ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[DM from ${event.nick}]: ${event.message}`,
       channel: 'dm',
       nick: event.nick,
       ts,
@@ -288,7 +301,7 @@ function handleMessage(conn: Connection, event: {
   // TIER 1: #urgent
   if (targetLower === gateChannel) {
     emitHighPriority({
-      content: `${prefix}[${channel}] <${event.nick}> ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[${channel}] <${event.nick}> ${event.message}`,
       channel,
       nick: event.nick,
       ts,
@@ -301,7 +314,7 @@ function handleMessage(conn: Connection, event: {
   // TIER 1: Mentions
   if (isMention(event.message, myNick)) {
     emitHighPriority({
-      content: `${prefix}[MENTION] <${event.nick}> in ${channel}: ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[MENTION] <${event.nick}> in ${channel}: ${event.message}`,
       channel,
       nick: event.nick,
       ts,
@@ -353,7 +366,7 @@ pool.onRegistered = (conn) => {
   }
 }
 
-pool.onMessage = (conn, event) => handleMessage(conn, event)
+pool.onMessage = (conn, event) => { void handleMessage(conn, event) }
 
 pool.onJoin = (conn, event) => {
   if (event.nick === conn.config.nick) {
@@ -768,7 +781,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!channel || !text) throw new Error('channel and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        conn.client.say(channel, text)
+        const sendTags = signMessage(conn.config.nick, channel, text)
+        conn.client.say(channel, text, sendTags ?? undefined)
         return { content: [{ type: 'text', text: `sent to ${channel}` }] }
       }
 
@@ -777,7 +791,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!nick || !text) throw new Error('nick and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        conn.client.say(nick, text)
+        const dmTags = signMessage(conn.config.nick, nick, text)
+        conn.client.say(nick, text, dmTags ?? undefined)
         return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
       }
 
