@@ -781,8 +781,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!channel || !text) throw new Error('channel and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        const sendTags = signMessage(conn.config.nick, channel, text)
-        conn.client.say(channel, text, sendTags ?? undefined)
+        // Sign each line individually — signing the full text then splitting
+        // would give each block a mismatched signature (verification_failed).
+        for (const line of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
+          const tags = signMessage(conn.config.nick, channel, line)
+          conn.client.say(channel, line, tags ?? undefined)
+        }
         return { content: [{ type: 'text', text: `sent to ${channel}` }] }
       }
 
@@ -791,8 +795,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!nick || !text) throw new Error('nick and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        const dmTags = signMessage(conn.config.nick, nick, text)
-        conn.client.say(nick, text, dmTags ?? undefined)
+        // Sign each line individually — same reason as 'send' above.
+        for (const line of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
+          const tags = signMessage(conn.config.nick, nick, line)
+          conn.client.say(nick, line, tags ?? undefined)
+        }
         return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
       }
 

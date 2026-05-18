@@ -212,6 +212,7 @@ export class ConnectionPool {
       auto_reconnect: true,
       auto_reconnect_wait: 3000,
       auto_reconnect_max_retries: 999,
+      message_max_length: 4096,
       ...(config.websocket ? { transport: wsTransport } : {}),
       ...(config.username && config.password
         ? { account: { account: config.username, password: config.password } }
