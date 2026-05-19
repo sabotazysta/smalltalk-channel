@@ -69,9 +69,9 @@ export function buildCanonicalBytes(
     SEP,
     Buffer.from(tsMs, 'utf8'),
     SEP,
-    Buffer.from(sender, 'utf8'),
+    Buffer.from(sender.toLowerCase(), 'utf8'),
     SEP,
-    Buffer.from(target, 'utf8'),
+    Buffer.from(target.toLowerCase(), 'utf8'),
     SEP,
     Buffer.from(body, 'utf8'),
   ]
@@ -252,8 +252,23 @@ function loadIdentityKey(): { key: crypto.KeyObject; kid: string } | null {
     _privateKey = keyObj
     _keyId = kid
     return { key: keyObj, kid }
-  } catch {
+  } catch (e) {
+    process.stderr.write(`smalltalk: loadIdentityKey failed: ${e}\n`)
     return null
+  }
+}
+
+/**
+ * Eagerly load the identity key at startup. Call this after .env has been
+ * loaded so HANZA_IDENTITY_KEY_PATH is available. Logs to stderr on failure.
+ */
+export function preloadIdentityKey(): void {
+  const result = loadIdentityKey()
+  if (result) {
+    process.stderr.write(`smalltalk: identity key loaded, kid=${result.kid}\n`)
+  } else {
+    const path = process.env.HANZA_IDENTITY_KEY_PATH ?? '(not set)'
+    process.stderr.write(`smalltalk: WARNING — identity key not loaded (HANZA_IDENTITY_KEY_PATH=${path})\n`)
   }
 }
 

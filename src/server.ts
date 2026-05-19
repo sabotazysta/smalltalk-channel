@@ -25,7 +25,7 @@ import { readFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
-import { verifyMessage, signMessage, type VerificationResult } from './verify.js'
+import { verifyMessage, signMessage, preloadIdentityKey, type VerificationResult } from './verify.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -40,6 +40,10 @@ try {
     if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim()
   }
 } catch {}
+
+// Eagerly load identity key after .env is set — ensures signing works from the
+// very first message, even if MCP tool calls arrive immediately after startup.
+preloadIdentityKey()
 
 const REGISTRY_URL       = process.env.REGISTRY_URL       ?? 'https://smalltalk.chat/api/registry'
 const REGISTRY_SERVER_ID = process.env.REGISTRY_SERVER_ID  // e.g. "smalltalk-public"
