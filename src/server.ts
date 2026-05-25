@@ -422,11 +422,13 @@ pool.onTopic = (conn, event) => {
 
 pool.onBatchStartChathistory = (conn, event) => {
   const st = getState(conn.config.host, conn.config.port)
-  const channel = (event.params[0] ?? '').toLowerCase()
-  const pending = st.pendingHistory.get(channel)
+  const target = (event.params[0] ?? '').toLowerCase()
+  // For DM history, the batch target is a nick (no # prefix) — use "dm:nick" key
+  const historyKey = target.startsWith('#') ? target : `dm:${target}`
+  const pending = st.pendingHistory.get(historyKey)
   if (pending) {
     pending.batchId = event.id
-    st.batchIdToChannel.set(event.id, channel)
+    st.batchIdToChannel.set(event.id, historyKey)
   }
 }
 
@@ -835,19 +837,24 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const conn = pool.resolve(args.server as string | undefined)
         const st = getState(conn.config.host, conn.config.port)
 
-        const existing = st.pendingHistory.get(channel)
+        // For DMs (no # prefix), use "dm:nick" as the pendingHistory key to avoid
+        // collisions with channel names and to match correctly in batch responses.
+        const isDM = !channel.startsWith('#')
+        const historyKey = isDM ? `dm:${channel}` : channel
+
+        const existing = st.pendingHistory.get(historyKey)
         if (existing) {
           clearTimeout(existing.timer)
           existing.reject(new Error('superseded by new fetch_history request'))
-          st.pendingHistory.delete(channel)
+          st.pendingHistory.delete(historyKey)
         }
 
         const messages = await new Promise<HistoryMessage[]>((resolve, reject) => {
           const timer = setTimeout(() => {
-            st.pendingHistory.delete(channel)
+            st.pendingHistory.delete(historyKey)
             reject(new Error('CHATHISTORY request timed out — server may not support the chathistory capability'))
           }, 10_000)
-          st.pendingHistory.set(channel, { batchId: null, messages: [], resolve, reject, timer })
+          st.pendingHistory.set(historyKey, { batchId: null, messages: [], resolve, reject, timer })
           conn.client.raw(`CHATHISTORY LATEST ${channel} * ${limit}`)
         })
 
@@ -972,9 +979,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           const isPrimary = conn === primary
 
           if (all.length === 1) {
-            lines.push(`connected to ${conn.config.host}:${conn.config.port} as ${conn.config.nick} (uptime: ${uptimeStr}, channels: ${channels.join(', ') || 'none'})`)
+            lines.push(`${conn.status} to ${conn.config.host}:${conn.config.port} as ${conn.config.nick} (uptime: ${uptimeStr}, channels: ${channels.join(', ') || 'none'})`)
           } else {
-            lines.push(`  ${isPrimary ? '[primary] ' : ''}${conn.config.host}:${conn.config.port} as ${conn.config.nick} — uptime ${uptimeStr}, channels: ${channels.join(', ') || 'none'}`)
+            lines.push(`  ${isPrimary ? '[primary] ' : ''}${conn.config.host}:${conn.config.port} as ${conn.config.nick} — status: ${conn.status}, uptime ${uptimeStr}, channels: ${channels.join(', ') || 'none'}`)
           }
         }
 
