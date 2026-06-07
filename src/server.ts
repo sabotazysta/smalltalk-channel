@@ -60,6 +60,69 @@ const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#urgent').toLowerCase()
 const IRC_SKILLS   = process.env.IRC_SKILLS?.trim() || undefined
 
+// ---------------------------------------------------------------------------
+// Message chunking for signed messages
+// ---------------------------------------------------------------------------
+// An IRC line is limited to 512 bytes for the message portion (prefix +
+// "PRIVMSG <target> :" + body + CRLF). When we sign a message we add ~150 bytes
+// of @+hanza.* tags, but the body itself still has to fit inside that 512-byte
+// message portion once the server prepends the sender prefix on relay. If the
+// body is too long, the IRCd truncates it mid-word — and since the signature
+// covers the FULL body, the recipient (who only receives the truncated body)
+// sees a signature mismatch → [⚠️unverified].
+//
+// To avoid this we split the body into byte-bounded chunks HERE, sign each
+// chunk over its own body, and send each as its own PRIVMSG. Each transmitted
+// line then stays well under the IRC limit and verifies correctly.
+//
+// Budget: 512 − worst-case relay prefix (":nick!user@host " ~60) − "PRIVMSG "
+// (8) − target (up to ~32) − " :" (2) − CRLF (2) ≈ 400 bytes of body. We use a
+// conservative 400-byte budget measured in UTF-8 bytes.
+const SIGNED_BODY_MAX_BYTES = 400
+
+/**
+ * Split a single logical line into UTF-8-byte-bounded chunks, breaking on word
+ * boundaries where possible (falling back to hard breaks for long words).
+ * Never splits inside a multi-byte UTF-8 sequence.
+ */
+function chunkLine(line: string, maxBytes: number): string[] {
+  if (Buffer.byteLength(line, 'utf8') <= maxBytes) return [line]
+
+  const chunks: string[] = []
+  const words = line.split(' ')
+  let cur = ''
+
+  const pushHardSplit = (word: string) => {
+    // Word itself exceeds maxBytes — hard-split on byte boundaries (codepoint-safe).
+    let buf = ''
+    for (const ch of word) {
+      if (Buffer.byteLength(buf + ch, 'utf8') > maxBytes) {
+        if (buf) chunks.push(buf)
+        buf = ch
+      } else {
+        buf += ch
+      }
+    }
+    return buf
+  }
+
+  for (const word of words) {
+    const candidate = cur ? cur + ' ' + word : word
+    if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
+      cur = candidate
+      continue
+    }
+    if (cur) { chunks.push(cur); cur = '' }
+    if (Buffer.byteLength(word, 'utf8') > maxBytes) {
+      cur = pushHardSplit(word)
+    } else {
+      cur = word
+    }
+  }
+  if (cur) chunks.push(cur)
+  return chunks
+}
+
 const missing: string[] = []
 if (!IRC_HOST)     missing.push('IRC_HOST')
 if (!IRC_NICK)     missing.push('IRC_NICK')
@@ -787,11 +850,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!channel || !text) throw new Error('channel and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        // Sign each line individually — signing the full text then splitting
-        // would give each block a mismatched signature (verification_failed).
-        for (const line of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          const tags = signMessage(conn.config.nick, channel, line)
-          conn.client.say(channel, line, tags ?? undefined)
+        // Sign each chunk individually. We split on newlines AND on byte length
+        // (SIGNED_BODY_MAX_BYTES) so the body always fits inside the IRC 512-byte
+        // line limit after the server prepends the sender prefix — otherwise the
+        // IRCd truncates the body and the signature (over the full body) fails to
+        // verify on the recipient side.
+        for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
+          for (const line of chunkLine(rawLine, SIGNED_BODY_MAX_BYTES)) {
+            const tags = signMessage(conn.config.nick, channel, line)
+            conn.client.say(channel, line, tags ?? undefined)
+          }
         }
         return { content: [{ type: 'text', text: `sent to ${channel}` }] }
       }
@@ -801,10 +869,13 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!nick || !text) throw new Error('nick and text are required')
         const conn = pool.resolve(args.server as string | undefined)
-        // Sign each line individually — same reason as 'send' above.
-        for (const line of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          const tags = signMessage(conn.config.nick, nick, line)
-          conn.client.say(nick, line, tags ?? undefined)
+        // Sign each chunk individually — same reason as 'send' above (byte-bounded
+        // so the relayed line stays under the IRC 512-byte limit and verifies).
+        for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
+          for (const line of chunkLine(rawLine, SIGNED_BODY_MAX_BYTES)) {
+            const tags = signMessage(conn.config.nick, nick, line)
+            conn.client.say(nick, line, tags ?? undefined)
+          }
         }
         return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
       }
