@@ -319,8 +319,14 @@ async function handleMessage(conn: Connection, event: {
       if (pending) {
         pending.messages.push({ ts: getEventTs(event.time), nick: event.nick, text: event.message })
       }
-      return
     }
+    // CHATHISTORY is historical by definition — NEVER surface it as a live notification, whether or
+    // not we registered this batch. Server-pushed / reconnect history replays carry an UNregistered
+    // batch id (no fetch_history was pending to register it), so they previously fell through here and
+    // got re-emitted as new DMs/mentions/channel msgs = the replay-loop (O13, Bob 2026-07-30). The
+    // `return` now lives OUTSIDE `if (batchChannel)` so ALL chathistory-batch messages are suppressed
+    // from the notify path (buffered for fetch_history when we requested them, silently dropped otherwise).
+    return
   }
 
   // Count live messages (excludes chathistory replays; includes own for accurate totals)
