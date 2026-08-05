@@ -135,6 +135,12 @@ if (!IRC_PASSWORD) missing.push('IRC_PASSWORD')
 
 const THROTTLE_WINDOW_MS = 30_000
 
+// O13 defense-in-depth (bandit, 2026-08-05): a non-batch-wrapped message whose own server-time tag
+// is older than this is treated as a likely replay, not a live message, and dropped from the notify
+// path. 3 minutes is generous — real network/queue delay on a genuinely live message practically
+// never exceeds tens of seconds, but the observed replays were minutes-to-an-hour old.
+const STALE_MESSAGE_MS = 3 * 60_000
+
 type ThrottleEntry = {
   lastNotified: number
   buffered: number
@@ -333,6 +339,30 @@ async function handleMessage(conn: Connection, event: {
   if (event.nick !== conn.config.nick) totalMessagesReceived++
 
   const ts = getEventTs(event.time)
+
+  // DEFENSE-IN-DEPTH (O13, bandit 2026-08-05): the fix above only suppresses messages that arrive
+  // wrapped in an actual `BATCH ... chathistory` frame. Buttermilk/Bob both observed a duplicate
+  // live-looking delivery of an already-seen message ~5min after the original, with NO batch tag at
+  // all — some CHATHISTORY-adjacent replay paths (ergo re-push on reconnect, a proxy-level retry) can
+  // apparently emit a historical message as a bare PRIVMSG with just an old server-time tag, which the
+  // batch-based fix can't catch. Catch that shape too: if the message's OWN server-time tag is older
+  // than STALE_MESSAGE_MS, it did not just happen — treat it the same as a chathistory replay (drop
+  // from the notify path) rather than re-alerting on something already seen. Generous threshold (not
+  // tight) so ordinary network/queue delay on a genuinely live message is never mistaken for a replay.
+  // NB `ts` is an ISO string (getEventTs's return type), not epoch ms — parse before diffing, and
+  // guard against an unparseable/garbage tag (NaN) so a malformed time tag never accidentally drops
+  // a genuinely live message.
+  const tsMs = Date.parse(ts)
+  const ageMs = Number.isFinite(tsMs) ? Date.now() - tsMs : 0
+  if (ageMs > STALE_MESSAGE_MS && event.nick !== conn.config.nick) {
+    process.stderr.write(
+      `smalltalk: dropped stale non-batch message from ${event.nick} on ${event.target} ` +
+      `(server-time ${ts}, ${Math.round(ageMs / 1000)}s old) — ` +
+      `likely a replay without a batch wrapper (O13 defense-in-depth)\n`
+    )
+    return
+  }
+
   const targetLower = event.target.toLowerCase()
   const isChannelMsg = event.target.startsWith('#') || event.target.startsWith('&')
   const isDM = !isChannelMsg
