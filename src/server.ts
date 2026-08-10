@@ -201,7 +201,7 @@ type PendingNames = {
   timer: ReturnType<typeof setTimeout>
 }
 
-type HistoryMessage = { ts: string; nick: string; text: string }
+type HistoryMessage = { ts: string; nick: string; text: string; msgid?: string }
 type PendingHistory = {
   batchId: string | null
   messages: HistoryMessage[]
@@ -371,7 +371,10 @@ async function handleMessage(conn: Connection, event: {
     if (batchChannel) {
       const pending = st.pendingHistory.get(batchChannel)
       if (pending) {
-        pending.messages.push({ ts: getEventTs(event.time), nick: event.nick, text: event.message })
+        pending.messages.push({
+          ts: getEventTs(event.time), nick: event.nick, text: event.message,
+          msgid: event.tags?.msgid,
+        })
       }
     }
     // CHATHISTORY is historical by definition — NEVER surface it as a live notification, whether or
@@ -880,6 +883,24 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'redact',
+      description:
+        'Delete one of YOUR OWN previously-sent messages from a channel or DM\'s persistent ' +
+        'history. Uses the server\'s native REDACT command (works for self-authored messages ' +
+        'without needing oper privileges). Cannot redact someone else\'s message. Use the ' +
+        'msgid from fetch_history\'s output (each message includes one) to identify the target.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'Channel (e.g. "#general") or nick the message was sent to.' },
+          msgid: { type: 'string', description: 'The message ID to redact, from fetch_history.' },
+          reason: { type: 'string', description: 'Optional reason, visible to server admins/logs.' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
+        },
+        required: ['target', 'msgid'],
+      },
+    },
+    {
       name: 'topic',
       description:
         'Get or set the topic of an IRC channel. ' +
@@ -1022,7 +1043,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           return { content: [{ type: 'text', text: `no history available for ${channel}` }] }
         }
 
-        const formatted = messages.map((m: HistoryMessage) => `[${m.ts}] <${m.nick}> ${m.text}`).join('\n')
+        // msgid included so a message can be targeted later (e.g. by the redact tool) without
+        // a separate lookup — omitted from the line entirely when unavailable (older/non-tagged
+        // replay) rather than printing an empty "msgid=" that looks like a real-but-blank value.
+        const formatted = messages.map((m: HistoryMessage) =>
+          `[${m.ts}]${m.msgid ? ` {${m.msgid}}` : ''} <${m.nick}> ${m.text}`).join('\n')
         return { content: [{ type: 'text', text: `${messages.length} message(s) from ${channel}:\n\n${formatted}` }] }
       }
 
@@ -1065,6 +1090,31 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
         conn.client.part(channel)
         return { content: [{ type: 'text', text: `left ${channel}` }] }
+      }
+
+      case 'redact': {
+        // Deletes ONE OF YOUR OWN messages from persistent history. Server-side: Ergo's
+        // REDACT <target> <msgid> [reason], available to any authenticated user for
+        // self-authored messages (no oper needed — verified live, 2026-08-10). This tool does
+        // NOT check message ownership itself; the server enforces that and will reject/no-op on
+        // someone else's message. Genesis: Chippy asked for a self-service redact path after
+        // needing bandit to do it manually for a real PII cleanup (2026-08-10) — this closes
+        // that gap so no agent needs to ask another to delete their own message again.
+        const target = args.target as string
+        const msgid = args.msgid as string
+        if (!target) throw new Error('target is required (a channel or nick)')
+        if (!msgid) throw new Error('msgid is required — get it from fetch_history\'s output')
+        const conn = pool.resolve(args.server as string | undefined)
+        const reason = args.reason as string | undefined
+        conn.client.raw(`REDACT ${target} ${msgid}${reason ? ` :${reason}` : ''}`)
+        return {
+          content: [{
+            type: 'text',
+            text: `redact sent for msgid ${msgid} in ${target}. This only works on YOUR OWN ` +
+              `messages — if it silently did nothing, that's most likely why. Verify with ` +
+              `fetch_history if you need to confirm.`,
+          }],
+        }
       }
 
       case 'topic': {
