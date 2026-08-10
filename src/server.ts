@@ -21,7 +21,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
@@ -33,6 +33,52 @@ import { verifyMessage, signMessage, preloadIdentityKey, type VerificationResult
 
 const STATE_DIR = join(homedir(), '.claude', 'channels', 'smalltalk')
 const ENV_FILE = join(STATE_DIR, '.env')
+
+// ---------------------------------------------------------------------------
+// Persisted channel membership
+//
+// WHY (2026-08-10, Jędrzej's ask): runtime join/part via the `join`/`part` tools
+// only lived in the in-memory `joinedChannels` Set — it survived a network
+// reconnect (onRegistered already rejoins `st.joinedChannels`) but NOT a full
+// process/container restart, since nothing wrote it to disk. That made dynamic
+// channel membership fake: an agent could `join #new-channel` and it would
+// silently vanish on the next recreate/restart, forcing a durable fix back onto
+// the IRC_CHANNELS env var + a container recreate — exactly the friction
+// Jędrzej pointed out ("Telegram doesn't need a restart for this, why does
+// IRC?"). Fix: persist the joined-channels set to a small JSON file next to
+// the existing .env, load it back in at state-creation time (BEFORE the first
+// connect, not just on reconnect), so join/part become durable without ever
+// touching IRC_CHANNELS or requiring a recreate.
+// ---------------------------------------------------------------------------
+const CHANNELS_FILE = join(STATE_DIR, 'joined-channels.json')
+
+function loadPersistedChannels(key: string): string[] {
+  try {
+    const all = JSON.parse(readFileSync(CHANNELS_FILE, 'utf8')) as Record<string, string[]>
+    return Array.isArray(all[key]) ? all[key] : []
+  } catch {
+    return []
+  }
+}
+
+function persistJoinedChannels(key: string, channels: Set<string>): void {
+  try {
+    mkdirSync(STATE_DIR, { recursive: true })
+    let all: Record<string, string[]> = {}
+    try {
+      all = JSON.parse(readFileSync(CHANNELS_FILE, 'utf8'))
+    } catch {
+      // first write, or file missing/corrupt — start fresh rather than blocking the save
+    }
+    all[key] = [...channels]
+    const tmp = CHANNELS_FILE + `.tmp-${process.pid}`
+    writeFileSync(tmp, JSON.stringify(all))
+    // atomic-ish rename avoids a half-written file if the process dies mid-write
+    renameSync(tmp, CHANNELS_FILE)
+  } catch (e) {
+    process.stderr.write(`smalltalk: WARNING failed to persist joined channels: ${e}\n`)
+  }
+}
 
 try {
   for (const line of readFileSync(ENV_FILE, 'utf8').split('\n')) {
@@ -198,7 +244,9 @@ function getState(host: string, port: number): ConnState {
   let s = connStates.get(key)
   if (!s) {
     s = {
-      joinedChannels: new Set(),
+      // Seed from disk so runtime join/part survives a full restart, not just a
+      // reconnect — see the "Persisted channel membership" block above.
+      joinedChannels: new Set(loadPersistedChannels(key)),
       channelUsers: new Map(),
       pendingNames: new Map(),
       pendingHistory: new Map(),
@@ -475,6 +523,7 @@ pool.onJoin = (conn, event) => {
   if (event.nick === conn.config.nick) {
     const st = getState(conn.config.host, conn.config.port)
     st.joinedChannels.add(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
     process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] joined ${event.channel}\n`)
     // Send !register to #general on session start if skills are configured
     if (conn.config.skills && event.channel.toLowerCase() === '#general') {
@@ -486,13 +535,17 @@ pool.onJoin = (conn, event) => {
 
 pool.onPart = (conn, event) => {
   if (event.nick === conn.config.nick) {
-    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
+    const st = getState(conn.config.host, conn.config.port)
+    st.joinedChannels.delete(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
   }
 }
 
 pool.onKick = (conn, event) => {
   if (event.kicked === conn.config.nick) {
-    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
+    const st = getState(conn.config.host, conn.config.port)
+    st.joinedChannels.delete(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
   }
 }
 
