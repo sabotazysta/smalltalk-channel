@@ -76,12 +76,18 @@ history).
    output as `{msgid}`. New MCP tool `redact(target, msgid, reason?, server?)` sends Ergo's native
    `REDACT <target> <msgid> [reason]` — self-service deletion of one's OWN messages, no oper
    needed. The underlying IRC mechanism and the msgid cap were both verified live via manual raw
-   protocol testing (2026-08-10 PII-cleanup incident); the MCP wrapper itself is build-verified
-   (`bun build --target=bun` clean) but has NOT been exercised through a real end-to-end MCP tool
-   call yet — doing so safely requires either a scratch agent or confirming this plugin's MCP
-   server auto-relaunches cleanly after a kill, which is itself unconfirmed (see
+   protocol testing (2026-08-10 PII-cleanup incident). The pure formatting logic (msgid-in-line
+   presentation, timestamp normalization) was extracted to `src/format.ts` (2026-08-11
+   specifically because `server.ts` can't safely be imported from a test — it has a top-level
+   `await mcp.connect(transport)`) and now has real unit coverage: `src/tests/format.test.ts`, 7
+   tests, `bun test src/tests/format.test.ts`. What's still NOT covered: the actual MCP tool
+   call path end-to-end (real IRC connection → real msgid on the wire → `redact` tool → real
+   REDACT accepted by Ergo) — doing that safely requires either a scratch agent or confirming
+   this plugin's MCP server auto-relaunches cleanly after a kill, which is itself unconfirmed (see
    `channel-bridge.ts` gotcha in memory: killing the child can take the whole supervisor down with
-   it). Real live test still owed before calling this fully proven.
+   it). That specific gap is smaller now (the risky, previously-untested string-formatting logic
+   is proven; what's left is thin plumbing — one `conn.client.raw(...)` call and the MCP
+   request/response shape) but still real.
 
 Rollout considerations for whoever picks this up: fleet-wide adoption needs each agent's
 container recreated/restarted with the new build (or a coordinated hot-swap), same class of
