@@ -201,7 +201,7 @@ type PendingNames = {
   timer: ReturnType<typeof setTimeout>
 }
 
-type HistoryMessage = { ts: string; nick: string; text: string; msgid?: string }
+import { getEventTs, formatHistoryMessage, type HistoryMessage } from './format'
 type PendingHistory = {
   batchId: string | null
   messages: HistoryMessage[]
@@ -268,13 +268,6 @@ const pool = new ConnectionPool()
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getEventTs(time: Date | string | null | undefined): string {
-  if (!time) return new Date().toISOString()
-  if (time instanceof Date) return time.toISOString()
-  if (typeof time === 'string') return time
-  return new Date().toISOString()
-}
 
 function isMention(text: string, nick: string): boolean {
   const escaped = nick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1043,11 +1036,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           return { content: [{ type: 'text', text: `no history available for ${channel}` }] }
         }
 
-        // msgid included so a message can be targeted later (e.g. by the redact tool) without
-        // a separate lookup — omitted from the line entirely when unavailable (older/non-tagged
-        // replay) rather than printing an empty "msgid=" that looks like a real-but-blank value.
-        const formatted = messages.map((m: HistoryMessage) =>
-          `[${m.ts}]${m.msgid ? ` {${m.msgid}}` : ''} <${m.nick}> ${m.text}`).join('\n')
+        const formatted = messages.map(formatHistoryMessage).join('\n')
         return { content: [{ type: 'text', text: `${messages.length} message(s) from ${channel}:\n\n${formatted}` }] }
       }
 
