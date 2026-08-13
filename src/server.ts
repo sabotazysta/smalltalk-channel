@@ -544,6 +544,11 @@ pool.onSocketClose = (conn) => {
   // Don't clear joinedChannels — needed for rejoin on reconnect
 }
 
+pool.onClientError = (conn, err) => {
+  process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] socket error: ${err.message}\n`)
+  logConnEvent(`ERROR nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} message=${JSON.stringify(err.message)}`)
+}
+
 pool.onReconnecting = (conn, event) => {
   process.stderr.write(
     `smalltalk: [${normalizeHost(conn.config.host)}] reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`

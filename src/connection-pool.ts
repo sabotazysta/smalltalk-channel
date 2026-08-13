@@ -82,6 +82,7 @@ export class ConnectionPool {
   public onReconnecting?: (conn: Connection, event: { attempt: number; max_retries: number; wait: number }) => void
   public onClose?: (conn: Connection) => void
   public onSocketClose?: (conn: Connection) => void
+  public onClientError?: (conn: Connection, err: Error) => void
   public onUserlist?: (conn: Connection, event: { channel: string; users: Array<{ nick: string; modes: string[] }> }) => void
   public onTopic?: (conn: Connection, event: { channel: string; topic: string; nick?: string }) => void
   public onBatchStartChathistory?: (conn: Connection, event: { id: string; type: string; params: string[] }) => void
@@ -189,9 +190,16 @@ export class ConnectionPool {
       this.onReconnecting?.(conn, event)
     })
 
-    client.on('close', () => {
+    client.on('close', (maybeErr?: Error | false) => {
       conn.status = 'disconnected'
       conn.channels.clear()
+      // websocket transport passes the last socket error (or `false`) as the
+      // close event's argument -- previously discarded entirely, which is why
+      // a stuck-registration loop showed as a bare "CLOSE ... never-registered"
+      // with zero indication of WHY (2026-08-13 incident).
+      if (maybeErr) {
+        this.onClientError?.(conn, maybeErr)
+      }
       this.onClose?.(conn)
       // Self-heal workaround for an irc-framework gap (2026-08-12/13, root-caused via
       // floppy's recurring connect/disconnect flap): irc-framework's own auto_reconnect
