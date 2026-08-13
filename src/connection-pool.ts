@@ -193,6 +193,19 @@ export class ConnectionPool {
       conn.status = 'disconnected'
       conn.channels.clear()
       this.onClose?.(conn)
+      // Self-heal workaround for an irc-framework gap (2026-08-12/13, root-caused via
+      // floppy's recurring connect/disconnect flap): irc-framework's own auto_reconnect
+      // only fires if reconnect_attempts > 0 OR (was_connected && safely_registered) --
+      // a connection whose VERY FIRST attempt fails/closes before ever registering
+      // satisfies neither condition, so the library's own retry logic never kicks in and
+      // the connection is abandoned forever regardless of our auto_reconnect config. Force
+      // our own retry in exactly that case so a cold-boot registration hang can't strand a
+      // bridge permanently. Tested against the real irc-framework shape, 3/3 passing
+      // (see connection-pool-fix.patch / test-scratch in bandit's research notes).
+      if (conn.connectedAt === null && this.connections.get(key) === conn) {
+        this.connections.delete(key)
+        setTimeout(() => { this.connect(config).catch(() => {}) }, 3000)
+      }
     })
 
     client.on('socket close', () => {
