@@ -83,6 +83,7 @@ export class ConnectionPool {
   public onClose?: (conn: Connection) => void
   public onSocketClose?: (conn: Connection) => void
   public onClientError?: (conn: Connection, err: Error) => void
+  public onPreRegRaw?: (conn: Connection, line: string) => void
   public onUserlist?: (conn: Connection, event: { channel: string; users: Array<{ nick: string; modes: string[] }> }) => void
   public onTopic?: (conn: Connection, event: { channel: string; topic: string; nick?: string }) => void
   public onBatchStartChathistory?: (conn: Connection, event: { id: string; type: string; params: string[] }) => void
@@ -110,6 +111,17 @@ export class ConnectionPool {
     }
 
     this.connections.set(key, conn)
+
+    // Diagnostic (2026-08-13, live incident): while never-registered, surface
+    // every raw line from the server -- this is the only way to see a SASL
+    // failure numeric / ERROR line / rate-limit reply that closes the socket
+    // server-side without ever raising a client-side error. Stops listening
+    // once registered so normal operation isn't spammed.
+    client.on('raw', (event: { line: string; from_server: boolean }) => {
+      if (event.from_server && conn.status !== 'connected') {
+        this.onPreRegRaw?.(conn, event.line)
+      }
+    })
 
     // Wire up event forwarding before connecting
     client.on('registered', () => {

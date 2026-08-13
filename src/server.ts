@@ -549,6 +549,10 @@ pool.onClientError = (conn, err) => {
   logConnEvent(`ERROR nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} message=${JSON.stringify(err.message)}`)
 }
 
+pool.onPreRegRaw = (conn, line) => {
+  logConnEvent(`RAW nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} line=${JSON.stringify(line)}`)
+}
+
 pool.onReconnecting = (conn, event) => {
   process.stderr.write(
     `smalltalk: [${normalizeHost(conn.config.host)}] reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
