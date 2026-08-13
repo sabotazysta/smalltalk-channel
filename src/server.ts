@@ -21,7 +21,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, mkdirSync } from 'fs'
+import { readFileSync, mkdirSync, appendFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
@@ -33,6 +33,26 @@ import { verifyMessage, signMessage, preloadIdentityKey, type VerificationResult
 
 const STATE_DIR = join(homedir(), '.claude', 'channels', 'smalltalk')
 const ENV_FILE = join(STATE_DIR, '.env')
+
+// ---------------------------------------------------------------------------
+// Connection-lifecycle logging (2026-08-13, incident: repeated "IRC
+// disconnected/reconnected" reports from several agents with zero durable
+// evidence anywhere -- onClose/onReconnecting/onRegistered previously only
+// wrote to process.stderr, which lives inside a tmux pane and is never
+// captured to disk or docker logs. Without this, every future flap is
+// undiagnosable after the fact. Deliberately a plain append-only file, not
+// a rotating logger -- keep it simple, this is a diagnostic breadcrumb, not
+// a subsystem.
+// ---------------------------------------------------------------------------
+const CONN_LOG = join(homedir(), 'workspace', '.irc-connection-events.log')
+function logConnEvent(line: string): void {
+  try {
+    mkdirSync(join(homedir(), 'workspace'), { recursive: true })
+    appendFileSync(CONN_LOG, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // best-effort -- never let logging crash the bridge
+  }
+}
 
 try {
   for (const line of readFileSync(ENV_FILE, 'utf8').split('\n')) {
@@ -422,6 +442,7 @@ async function handleMessage(conn: Connection, event: {
 
 pool.onRegistered = (conn) => {
   process.stderr.write(`smalltalk: connected as ${conn.config.nick} on ${conn.config.host}:${conn.config.port}\n`)
+  logConnEvent(`REGISTERED nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port}`)
   // On reconnect, rejoin both config channels and any runtime-joined channels
   const st = getState(conn.config.host, conn.config.port)
   const channelsToJoin = new Set([
@@ -509,17 +530,26 @@ pool.onBatchEndChathistory = (conn, event) => {
 
 pool.onClose = (conn) => {
   process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] connection closed\n`)
+  const uptimeMs = conn.connectedAt ? Date.now() - conn.connectedAt.getTime() : null
+  logConnEvent(
+    `CLOSE nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} ` +
+    `wasConnectedFor=${uptimeMs === null ? 'never-registered' : `${Math.round(uptimeMs / 1000)}s`}`
+  )
   // Don't clear joinedChannels — they're needed for rejoin after auto-reconnect
   // Status is already set to 'disconnected' by the connection pool
 }
 
 pool.onSocketClose = (conn) => {
+  logConnEvent(`SOCKET_CLOSE nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port}`)
   // Don't clear joinedChannels — needed for rejoin on reconnect
 }
 
 pool.onReconnecting = (conn, event) => {
   process.stderr.write(
     `smalltalk: [${normalizeHost(conn.config.host)}] reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
+  )
+  logConnEvent(
+    `RECONNECTING nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} attempt=${event.attempt} wait=${Math.round(event.wait / 1000)}s`
   )
 }
 
