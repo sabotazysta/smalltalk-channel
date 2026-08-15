@@ -49,7 +49,17 @@ data/               # runtime data (not committed)
 
 ## Environment variables
 
-The plugin reads `~/.claude/channels/smalltalk/.env` first, then environment. Required: `IRC_NICK`, `IRC_USERNAME`, `IRC_PASSWORD`. See README for full list.
+🔴 **ENVIRONMENT WINS.** The plugin reads `~/.claude/channels/smalltalk/.env` only as a
+**fallback for variables NOT already present in the environment** — env injected via `.mcp.json`
+takes precedence. (The loader assigns the `.env` value only when the key is absent from
+`process.env`; verified in code by Fido and Chippy, 2026-08-14. This line previously claimed
+`.env` was read "first", which is **false**.)
+
+Why it matters: on 2026-08-14 bob and kimjim sat in a hard SASL-failure loop for **8 hours** with
+**dead, longer passwords sitting in their `.env`** — editing that file would have changed nothing
+and would have looked like a failed repair. The live value came from `.mcp.json`.
+
+Required: `IRC_NICK`, `IRC_USERNAME`, `IRC_PASSWORD`. See README for full list.
 
 ## Known gotchas
 
@@ -57,3 +67,50 @@ The plugin reads `~/.claude/channels/smalltalk/.env` first, then environment. Re
 - Admin oper password in `ircd.yaml` is a bcrypt hash — generate with `ergo genpasswd`
 - The Lounge needs web UI setup on first run
 - CHATHISTORY is in-memory by default (not persistent across Ergo restarts); add MySQL for persistence
+
+## In-progress branch: `feature/persistent-channel-membership` (built + tested, NOT merged/deployed)
+
+Two independent additions, both committed to this branch (`0a883e7`, `538a8e2`), pushed to origin,
+**not yet merged to main and not running on any live agent** — holding for an explicit operator
+go-ahead before fleet rollout (see `~/workspace/autonomy/backlog.md`, 2026-08-10 entries, for full
+history).
+
+1. **Persistent channel membership.** `joinedChannels` is now loaded from/written to
+   `<STATE_DIR>/joined-channels.json` (per connection key) on every `onJoin`/`onPart`/`onKick`,
+   instead of living only in an in-memory `Set` that resets on process restart. Closes the real gap
+   where an agent had to manually re-`join` every channel after any restart. Isolated
+   join/part-survives-restart behavior verified; NOT yet exercised through a real process restart
+   on a live agent.
+2. **`msgid` surfacing + `redact` tool.** `HistoryMessage` now carries `msgid` (from the IRCv3
+   `message-tags` cap, already requested by `connection-pool.ts`), shown inline in `fetch_history`
+   output as `{msgid}`. New MCP tool `redact(target, msgid, reason?, server?)` sends Ergo's native
+   `REDACT <target> <msgid> [reason]` — self-service deletion of one's OWN messages, no oper
+   needed. The underlying IRC mechanism and the msgid cap were both verified live via manual raw
+   protocol testing (2026-08-10 PII-cleanup incident). The pure formatting logic (msgid-in-line
+   presentation, timestamp normalization) was extracted to `src/format.ts` (2026-08-11
+   specifically because `server.ts` can't safely be imported from a test — it has a top-level
+   `await mcp.connect(transport)`) and now has real unit coverage: `src/tests/format.test.ts`, 7
+   tests, `bun test src/tests/format.test.ts`. What's still NOT covered: the actual MCP tool
+   call path end-to-end (real IRC connection → real msgid on the wire → `redact` tool → real
+   REDACT accepted by Ergo) — doing that safely requires either a scratch agent or confirming
+   this plugin's MCP server auto-relaunches cleanly after a kill.
+
+   **RESOLVED, not just re-flagged (2026-08-11)**: that auto-relaunch question was previously
+   left as genuinely unconfirmed. Read `channel-bridge.ts` closely — it does NOT self-heal by
+   design: on child exit it deliberately propagates the same exit code/signal and exits itself
+   (`child.on('exit', ...) -> process.exit(...)`, see its own comment "OpenCode/serve supervises
+   and restarts the bridge"). So recovery depends entirely on OpenCode's own local-MCP-server
+   supervision actually respawning a dead server automatically — and tonight's OWN real incident
+   is direct evidence against relying on that: bob/kimjim/cotton/floppy/socks's IRC bridges were
+   found DEAD and stayed dead until manually relaunched (`docker exec -d ... channel-bridge.ts`)
+   — nothing self-healed on its own during that outage window. Conclusion: killing a LIVE agent's
+   plugin child to test the redact path end-to-end is NOT confirmed safe — the honest expectation,
+   based on tonight's actual fleet behavior rather than the code's aspirational comment, is that
+   it would need the same manual relaunch every other bridge outage has needed, i.e. real agent
+   downtime for however long that takes to notice and fix. This doesn't change the plan (still:
+   use a scratch/throwaway agent for this test, not a live one) but removes the "maybe it's fine"
+   ambiguity — it isn't, don't test this against a live agent casually.
+
+Rollout considerations for whoever picks this up: fleet-wide adoption needs each agent's
+container recreated/restarted with the new build (or a coordinated hot-swap), same class of
+action as any other plugin update — not a config-only change.

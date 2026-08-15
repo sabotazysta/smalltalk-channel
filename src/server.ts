@@ -21,7 +21,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, mkdirSync, appendFileSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
@@ -51,6 +51,52 @@ function logConnEvent(line: string): void {
     appendFileSync(CONN_LOG, `${new Date().toISOString()} ${line}\n`)
   } catch {
     // best-effort -- never let logging crash the bridge
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Persisted channel membership
+//
+// WHY (2026-08-10, Jędrzej's ask): runtime join/part via the `join`/`part` tools
+// only lived in the in-memory `joinedChannels` Set — it survived a network
+// reconnect (onRegistered already rejoins `st.joinedChannels`) but NOT a full
+// process/container restart, since nothing wrote it to disk. That made dynamic
+// channel membership fake: an agent could `join #new-channel` and it would
+// silently vanish on the next recreate/restart, forcing a durable fix back onto
+// the IRC_CHANNELS env var + a container recreate — exactly the friction
+// Jędrzej pointed out ("Telegram doesn't need a restart for this, why does
+// IRC?"). Fix: persist the joined-channels set to a small JSON file next to
+// the existing .env, load it back in at state-creation time (BEFORE the first
+// connect, not just on reconnect), so join/part become durable without ever
+// touching IRC_CHANNELS or requiring a recreate.
+// ---------------------------------------------------------------------------
+const CHANNELS_FILE = join(STATE_DIR, 'joined-channels.json')
+
+function loadPersistedChannels(key: string): string[] {
+  try {
+    const all = JSON.parse(readFileSync(CHANNELS_FILE, 'utf8')) as Record<string, string[]>
+    return Array.isArray(all[key]) ? all[key] : []
+  } catch {
+    return []
+  }
+}
+
+function persistJoinedChannels(key: string, channels: Set<string>): void {
+  try {
+    mkdirSync(STATE_DIR, { recursive: true })
+    let all: Record<string, string[]> = {}
+    try {
+      all = JSON.parse(readFileSync(CHANNELS_FILE, 'utf8'))
+    } catch {
+      // first write, or file missing/corrupt — start fresh rather than blocking the save
+    }
+    all[key] = [...channels]
+    const tmp = CHANNELS_FILE + `.tmp-${process.pid}`
+    writeFileSync(tmp, JSON.stringify(all))
+    // atomic-ish rename avoids a half-written file if the process dies mid-write
+    renameSync(tmp, CHANNELS_FILE)
+  } catch (e) {
+    process.stderr.write(`smalltalk: WARNING failed to persist joined channels: ${e}\n`)
   }
 }
 
@@ -155,6 +201,12 @@ if (!IRC_PASSWORD) missing.push('IRC_PASSWORD')
 
 const THROTTLE_WINDOW_MS = 30_000
 
+// O13 defense-in-depth (bandit, 2026-08-05): a non-batch-wrapped message whose own server-time tag
+// is older than this is treated as a likely replay, not a live message, and dropped from the notify
+// path. 3 minutes is generous — real network/queue delay on a genuinely live message practically
+// never exceeds tens of seconds, but the observed replays were minutes-to-an-hour old.
+const STALE_MESSAGE_MS = 3 * 60_000
+
 type ThrottleEntry = {
   lastNotified: number
   buffered: number
@@ -169,7 +221,7 @@ type PendingNames = {
   timer: ReturnType<typeof setTimeout>
 }
 
-type HistoryMessage = { ts: string; nick: string; text: string }
+import { getEventTs, formatHistoryMessage, type HistoryMessage } from './format'
 type PendingHistory = {
   batchId: string | null
   messages: HistoryMessage[]
@@ -212,7 +264,9 @@ function getState(host: string, port: number): ConnState {
   let s = connStates.get(key)
   if (!s) {
     s = {
-      joinedChannels: new Set(),
+      // Seed from disk so runtime join/part survives a full restart, not just a
+      // reconnect — see the "Persisted channel membership" block above.
+      joinedChannels: new Set(loadPersistedChannels(key)),
       channelUsers: new Map(),
       pendingNames: new Map(),
       pendingHistory: new Map(),
@@ -234,13 +288,6 @@ const pool = new ConnectionPool()
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getEventTs(time: Date | string | null | undefined): string {
-  if (!time) return new Date().toISOString()
-  if (time instanceof Date) return time.toISOString()
-  if (typeof time === 'string') return time
-  return new Date().toISOString()
-}
 
 function isMention(text: string, nick: string): boolean {
   const escaped = nick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -337,16 +384,49 @@ async function handleMessage(conn: Connection, event: {
     if (batchChannel) {
       const pending = st.pendingHistory.get(batchChannel)
       if (pending) {
-        pending.messages.push({ ts: getEventTs(event.time), nick: event.nick, text: event.message })
+        pending.messages.push({
+          ts: getEventTs(event.time), nick: event.nick, text: event.message,
+          msgid: event.tags?.msgid,
+        })
       }
-      return
     }
+    // CHATHISTORY is historical by definition — NEVER surface it as a live notification, whether or
+    // not we registered this batch. Server-pushed / reconnect history replays carry an UNregistered
+    // batch id (no fetch_history was pending to register it), so they previously fell through here and
+    // got re-emitted as new DMs/mentions/channel msgs = the replay-loop (O13, Bob 2026-07-30). The
+    // `return` now lives OUTSIDE `if (batchChannel)` so ALL chathistory-batch messages are suppressed
+    // from the notify path (buffered for fetch_history when we requested them, silently dropped otherwise).
+    return
   }
 
   // Count live messages (excludes chathistory replays; includes own for accurate totals)
   if (event.nick !== conn.config.nick) totalMessagesReceived++
 
   const ts = getEventTs(event.time)
+
+  // DEFENSE-IN-DEPTH (O13, bandit 2026-08-05): the fix above only suppresses messages that arrive
+  // wrapped in an actual `BATCH ... chathistory` frame. Buttermilk/Bob both observed a duplicate
+  // live-looking delivery of an already-seen message ~5min after the original, with NO batch tag at
+  // all — some CHATHISTORY-adjacent replay paths (ergo re-push on reconnect, a proxy-level retry) can
+  // apparently emit a historical message as a bare PRIVMSG with just an old server-time tag, which the
+  // batch-based fix can't catch. Catch that shape too: if the message's OWN server-time tag is older
+  // than STALE_MESSAGE_MS, it did not just happen — treat it the same as a chathistory replay (drop
+  // from the notify path) rather than re-alerting on something already seen. Generous threshold (not
+  // tight) so ordinary network/queue delay on a genuinely live message is never mistaken for a replay.
+  // NB `ts` is an ISO string (getEventTs's return type), not epoch ms — parse before diffing, and
+  // guard against an unparseable/garbage tag (NaN) so a malformed time tag never accidentally drops
+  // a genuinely live message.
+  const tsMs = Date.parse(ts)
+  const ageMs = Number.isFinite(tsMs) ? Date.now() - tsMs : 0
+  if (ageMs > STALE_MESSAGE_MS && event.nick !== conn.config.nick) {
+    process.stderr.write(
+      `smalltalk: dropped stale non-batch message from ${event.nick} on ${event.target} ` +
+      `(server-time ${ts}, ${Math.round(ageMs / 1000)}s old) — ` +
+      `likely a replay without a batch wrapper (O13 defense-in-depth)\n`
+    )
+    return
+  }
+
   const targetLower = event.target.toLowerCase()
   const isChannelMsg = event.target.startsWith('#') || event.target.startsWith('&')
   const isDM = !isChannelMsg
@@ -460,6 +540,7 @@ pool.onJoin = (conn, event) => {
   if (event.nick === conn.config.nick) {
     const st = getState(conn.config.host, conn.config.port)
     st.joinedChannels.add(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
     process.stderr.write(`smalltalk: [${normalizeHost(conn.config.host)}] joined ${event.channel}\n`)
     // Send !register to #general on session start if skills are configured
     if (conn.config.skills && event.channel.toLowerCase() === '#general') {
@@ -471,13 +552,17 @@ pool.onJoin = (conn, event) => {
 
 pool.onPart = (conn, event) => {
   if (event.nick === conn.config.nick) {
-    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
+    const st = getState(conn.config.host, conn.config.port)
+    st.joinedChannels.delete(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
   }
 }
 
 pool.onKick = (conn, event) => {
   if (event.kicked === conn.config.nick) {
-    getState(conn.config.host, conn.config.port).joinedChannels.delete(event.channel.toLowerCase())
+    const st = getState(conn.config.host, conn.config.port)
+    st.joinedChannels.delete(event.channel.toLowerCase())
+    persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
   }
 }
 
@@ -830,6 +915,24 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'redact',
+      description:
+        'Delete one of YOUR OWN previously-sent messages from a channel or DM\'s persistent ' +
+        'history. Uses the server\'s native REDACT command (works for self-authored messages ' +
+        'without needing oper privileges). Cannot redact someone else\'s message. Use the ' +
+        'msgid from fetch_history\'s output (each message includes one) to identify the target.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'Channel (e.g. "#general") or nick the message was sent to.' },
+          msgid: { type: 'string', description: 'The message ID to redact, from fetch_history.' },
+          reason: { type: 'string', description: 'Optional reason, visible to server admins/logs.' },
+          server: { type: 'string', description: 'IRC server host. Defaults to primary.' },
+        },
+        required: ['target', 'msgid'],
+      },
+    },
+    {
       name: 'topic',
       description:
         'Get or set the topic of an IRC channel. ' +
@@ -972,7 +1075,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           return { content: [{ type: 'text', text: `no history available for ${channel}` }] }
         }
 
-        const formatted = messages.map((m: HistoryMessage) => `[${m.ts}] <${m.nick}> ${m.text}`).join('\n')
+        const formatted = messages.map(formatHistoryMessage).join('\n')
         return { content: [{ type: 'text', text: `${messages.length} message(s) from ${channel}:\n\n${formatted}` }] }
       }
 
@@ -1015,6 +1118,31 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
         conn.client.part(channel)
         return { content: [{ type: 'text', text: `left ${channel}` }] }
+      }
+
+      case 'redact': {
+        // Deletes ONE OF YOUR OWN messages from persistent history. Server-side: Ergo's
+        // REDACT <target> <msgid> [reason], available to any authenticated user for
+        // self-authored messages (no oper needed — verified live, 2026-08-10). This tool does
+        // NOT check message ownership itself; the server enforces that and will reject/no-op on
+        // someone else's message. Genesis: Chippy asked for a self-service redact path after
+        // needing bandit to do it manually for a real PII cleanup (2026-08-10) — this closes
+        // that gap so no agent needs to ask another to delete their own message again.
+        const target = args.target as string
+        const msgid = args.msgid as string
+        if (!target) throw new Error('target is required (a channel or nick)')
+        if (!msgid) throw new Error('msgid is required — get it from fetch_history\'s output')
+        const conn = pool.resolve(args.server as string | undefined)
+        const reason = args.reason as string | undefined
+        conn.client.raw(`REDACT ${target} ${msgid}${reason ? ` :${reason}` : ''}`)
+        return {
+          content: [{
+            type: 'text',
+            text: `redact sent for msgid ${msgid} in ${target}. This only works on YOUR OWN ` +
+              `messages — if it silently did nothing, that's most likely why. Verify with ` +
+              `fetch_history if you need to confirm.`,
+          }],
+        }
       }
 
       case 'topic': {
