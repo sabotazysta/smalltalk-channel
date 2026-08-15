@@ -26,6 +26,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
 import { verifyMessage, signMessage, preloadIdentityKey, type VerificationResult } from './verify.js'
+import { parseWhoisChannels, unionChannels } from './channels.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -531,6 +532,65 @@ pool.onRegistered = (conn) => {
   ])
   for (const ch of channelsToJoin) {
     conn.client.join(ch)
+  }
+  // Fire-and-forget: never gate registration on the server answering.
+  void seedChannelsFromServer(conn)
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative membership seed (2026-08-15, doctor outage)
+//
+// Persistence replays what this plugin BELIEVED; this asks what the SERVER
+// KNOWS. Needed because Ergo's `always-on` sends NO JOIN echo to a client that
+// is already a member of a channel — so a set built only from echoes stays
+// empty forever after a restart, and the agent then reports `channels: none`,
+// refuses `join`/`part` on its own (wrong) bookkeeping, and silently drops
+// every channel notification, all while `send` still works. Measured on doctor.
+//
+// Contract, deliberately conservative:
+//   - UNION with disk + config. Nothing here deletes anything.
+//   - No 319 / no reply / timeout => leave state exactly as it was. "Learned
+//     nothing" must never be read as "in no channels".
+//   - No JOINs are sent for discovered channels. We are already in them; a JOIN
+//     would be noise at best.
+//   - Result is persisted, so the next restart starts from it even offline.
+// ---------------------------------------------------------------------------
+const WHOIS_SEED_TIMEOUT_MS = 10_000
+
+async function seedChannelsFromServer(conn: Connection): Promise<void> {
+  try {
+    const raw = await pool.whoisOwnChannels(conn, WHOIS_SEED_TIMEOUT_MS)
+    if (raw === null) {
+      process.stderr.write(
+        `smalltalk: [${normalizeHost(conn.config.host)}] no WHOIS 319 within ` +
+        `${WHOIS_SEED_TIMEOUT_MS}ms — channel membership left untouched\n`
+      )
+      logConnEvent(`WHOIS_SEED_NONE nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port}`)
+      return
+    }
+
+    const discovered = parseWhoisChannels(raw)
+    const st = getState(conn.config.host, conn.config.port)
+    const before = new Set(st.joinedChannels)
+    const merged = unionChannels(st.joinedChannels, conn.config.channels ?? [], discovered)
+    st.joinedChannels = new Set(merged)
+
+    const added = merged.filter((c) => !before.has(c))
+    if (added.length > 0) {
+      persistJoinedChannels(connKey(conn.config.host, conn.config.port), st.joinedChannels)
+    }
+    process.stderr.write(
+      `smalltalk: [${normalizeHost(conn.config.host)}] WHOIS seed: server reports ` +
+      `${discovered.length} channel(s), ${added.length} new to us` +
+      `${added.length ? ` (${added.join(', ')})` : ''}\n`
+    )
+    logConnEvent(
+      `WHOIS_SEED nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} ` +
+      `fromServer=${discovered.length} added=${added.length} total=${merged.length}`
+    )
+  } catch (e) {
+    // Seeding is an enhancement; a failure here must never take the bridge down.
+    process.stderr.write(`smalltalk: WARNING WHOIS channel seed failed: ${e}\n`)
   }
 }
 

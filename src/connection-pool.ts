@@ -254,6 +254,52 @@ export class ConnectionPool {
 
   }
 
+  /**
+   * Ask the server which channels WE are actually in, via `WHOIS <own nick>` ->
+   * numeric 319 (RPL_WHOISCHANNELS). Resolves with the raw, space-separated,
+   * still-prefixed channel string (e.g. `"#public @#dexter #general"`), or
+   * `null` if the server told us nothing in time.
+   *
+   * WHY: JOIN echoes are not a reliable source of truth. Ergo with `always-on`
+   * sends no JOIN echo to a client that is already a member, so a client that
+   * rebuilds membership purely from echoes believes it is in zero channels
+   * forever after a restart (doctor, 2026-08-15). The server always knows.
+   *
+   * irc-framework already parses 319 into the `channels` field of the `whois`
+   * event and emits it on 318 (RPL_ENDOFWHOIS), so no raw-numeric handler is
+   * needed here — but `client.whois()`'s own callback never fires (and leaks its
+   * listener) if 318 never arrives, hence this bounded version.
+   *
+   * Never rejects and never blocks anything: a timeout resolves `null`, which
+   * callers must treat as "learned nothing", NOT as "in no channels".
+   */
+  whoisOwnChannels(conn: Connection, timeoutMs = 10_000): Promise<string | null> {
+    return new Promise((resolve) => {
+      const nick = conn.config.nick.toLowerCase()
+      let settled = false
+
+      const finish = (value: string | null) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        conn.client.removeListener('whois', onWhois)
+        resolve(value)
+      }
+
+      const onWhois = (event: { nick?: string; channels?: string }) => {
+        if (event?.nick?.toLowerCase() === nick) finish(event.channels ?? null)
+      }
+
+      const timer = setTimeout(() => finish(null), timeoutMs)
+      conn.client.on('whois', onWhois)
+      try {
+        conn.client.raw(`WHOIS ${conn.config.nick}`)
+      } catch {
+        finish(null)
+      }
+    })
+  }
+
   async disconnect(host: string): Promise<void> {
     const key = resolveKey(this.connections, host)
     if (!key) {
