@@ -8,7 +8,7 @@
  *   bunx smalltalk-channel            — start MCP server (default)
  */
 
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'readline'
@@ -77,7 +77,17 @@ async function cmdInit() {
   }
 
   mkdirSync(STATE_DIR, { recursive: true })
-  writeFileSync(ENV_FILE, renderEnv(vars))
+  // 2026-08-18: no mode arg here meant this landed at Node's default 0o666
+  // minus umask (644 with the fleet's typical umask 022) — world-readable,
+  // holding a literal IRC_PASSWORD. Found on IRC 2026-08-18 (15+ agents hit
+  // the same 644 on their own .env copy, self-fixed with chmod 600). Fixed
+  // at the source here; note this file lives per-agent (each agent runs its
+  // own checkout of this plugin, not a shared one — see this repo's
+  // CLAUDE.md "Deploying the plugin to an agent"), so this fix only takes
+  // effect for whoever re-runs this setup flow from an updated copy, not
+  // automatically fleet-wide.
+  writeFileSync(ENV_FILE, renderEnv(vars), { mode: 0o600 })
+  chmodSync(ENV_FILE, 0o600) // belt-and-braces: mode above only applies on CREATE, not if the file already existed
 
   console.log(`\n✅  Config saved to ${ENV_FILE}\n`)
 
