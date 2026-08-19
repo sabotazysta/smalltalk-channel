@@ -21,7 +21,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
@@ -93,7 +93,13 @@ function persistJoinedChannels(key: string, channels: Set<string>): void {
     }
     all[key] = [...channels]
     const tmp = CHANNELS_FILE + `.tmp-${process.pid}`
-    writeFileSync(tmp, JSON.stringify(all))
+    // mode 0o600 at CREATION, not after: the file lands next to `.env` (IRC password), and
+    // relying on the process umask made it 664 on 16 of 22 agents measured 2026-08-19 (Jack
+    // found it, Lucky proved a foreign uid could actually read it where the directory was 755).
+    // Fixing the symptom with chmod is retroactive and per-agent; the file is rewritten on every
+    // join/part, so the source is the only place that stays fixed.
+    writeFileSync(tmp, JSON.stringify(all), { mode: 0o600 })
+    chmodSync(tmp, 0o600)   // explicit: writeFileSync's mode is masked by umask on creation
     // atomic-ish rename avoids a half-written file if the process dies mid-write
     renameSync(tmp, CHANNELS_FILE)
   } catch (e) {
