@@ -253,6 +253,11 @@ type PendingNames = {
 }
 
 import { getEventTs, formatHistoryMessage, withChunkMarkers, CHUNK_MARKER_BUDGET, type HistoryMessage } from './format'
+import { watchForRejection, rejectionMessage } from './send-ack.ts'
+// Okno oczekiwania na numeryk odmowy po PRIVMSG (O50). IRC nie ma pozytywnego ACK:
+// serwer milczy przy sukcesie, odpowiada numerykiem przy odrzuceniu. 400 ms wystarcza
+// dla lokalnego Ergo (odpowiada w jednostkach ms) i nie zauwazalnie opoznia wysylke.
+const SEND_GRACE_MS = Number(process.env.SMALLTALK_SEND_GRACE_MS ?? 400)
 type PendingHistory = {
   batchId: string | null
   messages: HistoryMessage[]
@@ -1087,6 +1092,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         // line limit after the server prepends the sender prefix — otherwise the
         // IRCd truncates the body and the signature (over the full body) fails to
         // verify on the recipient side.
+        // Nasluch odmowy startuje PRZED wysylka — Ergo odpowiada 404 w jednostkach ms,
+        // wiec podlaczenie sie po `say()` gubi czesc odmow (O50).
+        const rejWatch = watchForRejection(conn.client as never, channel, SEND_GRACE_MS)
         let sentParts = 0
         for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
           for (const line of chunkForSend(rawLine)) {
@@ -1095,9 +1103,13 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
             sentParts++
           }
         }
+        const rejection = await rejWatch.settle()
+        if (rejection) throw new Error(rejectionMessage(rejection, channel))
         // Liczba WYSLANYCH czesci wraca do wolajacego, zeby dalo sie porownac ja
         // z tym, co odbiorca zobaczyl (O40: trzy razy dotarl tylko poczatek).
-        return { content: [{ type: 'text', text: `sent to ${channel}${sentParts > 1 ? ` (${sentParts} czesci)` : ''}` }] }
+        // „brak odmowy" NIE jest dowodem dostarczenia — IRC nie daje pozytywnego ACK.
+        // Mowimy dokladnie tyle, ile wiemy (O50).
+        return { content: [{ type: 'text', text: `sent to ${channel}${sentParts > 1 ? ` (${sentParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms` }] }
       }
 
       case 'dm': {
@@ -1107,6 +1119,10 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const conn = pool.resolve(args.server as string | undefined)
         // Sign each chunk individually — same reason as 'send' above (byte-bounded
         // so the relayed line stays under the IRC 512-byte limit and verifies).
+        // Ta sama ochrona co w `send` (O50): DM tez moze zostac odrzucony — 401 (nie ma
+        // takiego nicka), 716/531 (adresat nie przyjmuje DM-ow). Wczesniej narzedzie
+        // meldowalo sukces takze wtedy.
+        const dmRejWatch = watchForRejection(conn.client as never, nick, SEND_GRACE_MS)
         let sentDmParts = 0
         for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
           for (const line of chunkForSend(rawLine)) {
@@ -1115,7 +1131,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
             sentDmParts++
           }
         }
-        return { content: [{ type: 'text', text: `DM sent to ${nick}${sentDmParts > 1 ? ` (${sentDmParts} czesci)` : ''}` }] }
+        const dmRejection = await dmRejWatch.settle()
+        if (dmRejection) throw new Error(rejectionMessage(dmRejection, nick))
+        return { content: [{ type: 'text', text: `DM sent to ${nick}${sentDmParts > 1 ? ` (${sentDmParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms` }] }
       }
 
       case 'who': {
