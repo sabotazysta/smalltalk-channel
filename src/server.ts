@@ -196,6 +196,30 @@ function chunkLine(line: string, maxBytes: number): string[] {
   return chunks
 }
 
+/**
+ * Sciezka wysylki: dziel, a jesli wyszla WIECEJ NIZ JEDNA czesc — ponow podzial
+ * z budzetem pomniejszonym o rezerwe znacznika i doklej [k/n] (O40).
+ *
+ * Kolejnosc ma znaczenie: gdyby znacznik doklejac PO podziale pelnym budzetem,
+ * prefiks wypchnalby chunk ponad 400 B i IRCd przycialby go w locie — czyli
+ * naprawa cichego uciecia produkowalaby ciche uciecie. Krotka wiadomosc (jeden
+ * chunk) nie placi rezerwy i nie dostaje znacznika: jednej czesci nie da sie
+ * zgubic „w polowie serii", wiec znacznik bylby tam czystym szumem.
+ */
+function chunkForSend(line: string): string[] {
+  const single = chunkLine(line, SIGNED_BODY_MAX_BYTES)
+  if (single.length <= 1) return single
+  let reserve = CHUNK_MARKER_BUDGET
+  let parts = chunkLine(line, SIGNED_BODY_MAX_BYTES - reserve)
+  if (parts.length > 99) {
+    // trzycyfrowe n: "[100/100] " to 10 znakow — powieksz rezerwe i przelicz,
+    // zeby znacznik nadal miescil sie w budzecie zamiast go przekraczac
+    reserve = 11
+    parts = chunkLine(line, SIGNED_BODY_MAX_BYTES - reserve)
+  }
+  return withChunkMarkers(parts)
+}
+
 const missing: string[] = []
 if (!IRC_HOST)     missing.push('IRC_HOST')
 if (!IRC_NICK)     missing.push('IRC_NICK')
@@ -228,7 +252,7 @@ type PendingNames = {
   timer: ReturnType<typeof setTimeout>
 }
 
-import { getEventTs, formatHistoryMessage, type HistoryMessage } from './format'
+import { getEventTs, formatHistoryMessage, withChunkMarkers, CHUNK_MARKER_BUDGET, type HistoryMessage } from './format'
 type PendingHistory = {
   batchId: string | null
   messages: HistoryMessage[]
@@ -1063,13 +1087,17 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         // line limit after the server prepends the sender prefix — otherwise the
         // IRCd truncates the body and the signature (over the full body) fails to
         // verify on the recipient side.
+        let sentParts = 0
         for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          for (const line of chunkLine(rawLine, SIGNED_BODY_MAX_BYTES)) {
+          for (const line of chunkForSend(rawLine)) {
             const tags = signMessage(conn.config.nick, channel, line)
             conn.client.say(channel, line, tags ?? undefined)
+            sentParts++
           }
         }
-        return { content: [{ type: 'text', text: `sent to ${channel}` }] }
+        // Liczba WYSLANYCH czesci wraca do wolajacego, zeby dalo sie porownac ja
+        // z tym, co odbiorca zobaczyl (O40: trzy razy dotarl tylko poczatek).
+        return { content: [{ type: 'text', text: `sent to ${channel}${sentParts > 1 ? ` (${sentParts} czesci)` : ''}` }] }
       }
 
       case 'dm': {
@@ -1079,13 +1107,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const conn = pool.resolve(args.server as string | undefined)
         // Sign each chunk individually — same reason as 'send' above (byte-bounded
         // so the relayed line stays under the IRC 512-byte limit and verifies).
+        let sentDmParts = 0
         for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          for (const line of chunkLine(rawLine, SIGNED_BODY_MAX_BYTES)) {
+          for (const line of chunkForSend(rawLine)) {
             const tags = signMessage(conn.config.nick, nick, line)
             conn.client.say(nick, line, tags ?? undefined)
+            sentDmParts++
           }
         }
-        return { content: [{ type: 'text', text: `DM sent to ${nick}` }] }
+        return { content: [{ type: 'text', text: `DM sent to ${nick}${sentDmParts > 1 ? ` (${sentDmParts} czesci)` : ''}` }] }
       }
 
       case 'who': {
