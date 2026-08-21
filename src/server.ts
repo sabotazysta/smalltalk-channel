@@ -220,6 +220,51 @@ function chunkForSend(line: string): string[] {
   return withChunkMarkers(parts)
 }
 
+/**
+ * Buduje WSZYSTKIE czesci jednej wysylki (calego `text`, po wszystkich liniach)
+ * i numeruje je [k/n] przez cala serie — a nie osobno w obrebie kazdej linii.
+ *
+ * DLACZEGO (zmierzone 2026-08-21, O40/O51): odbiorca gubi OGON serii. Harness
+ * Claude Code kolejkuje kazdy PRIVMSG jako osobny wpis wejsciowy; jesli odbiorca
+ * byl BEZCZYNNY, czesc 1 startuje ture w ~6 ms, a czesci 2..n wpadaja juz W TRAKCIE
+ * tury i sa z kolejki USUWANE (`operation":"remove"`), nigdy nie trafiajac do modelu.
+ * Zmierzone u Floppy (12 czesci: 1 dostarczona, 11 usunietych; 9 czesci: 1 i 8)
+ * oraz u Snickersa (2 czesci: 1 i 1). Gdy odbiorca byl ZAJETY w chwili wysylki,
+ * cala seria czeka w kolejce i dochodzi w komplecie (10 z 10) — czyli to WYSCIG
+ * o stan odbiorcy, nie limit dlugosci.
+ *
+ * Numerowania per-linia NIE bylo widac wlasnie tam, gdzie bylo potrzebne: wiadomosc
+ * zlozona z n krotkich linii szla jako n PRIVMSG-ow BEZ zadnego znacznika, wiec
+ * odbiorca dostawal sama czesc 1 — kompletnie wygladajace zdanie — i nie mial
+ * ZADNEGO sygnalu, ze brakuje reszty. Numeracja przez cala serie zamienia te cicha
+ * utrate w glosna: „[1/12]" bez [2/12] jest natychmiast widoczne dla odbiorcy.
+ */
+function buildSendParts(text: string): string[] {
+  const lines = text.split(/\r\n|\n|\r/).filter(l => l.length > 0)
+  const split = (reserve: number) =>
+    lines.flatMap(l => chunkLine(l, SIGNED_BODY_MAX_BYTES - reserve))
+  // Jedna czesc nie moze byc „ucieta w polowie serii" — nie placi rezerwy i nie
+  // dostaje znacznika (ta sama zasada co w chunkForSend).
+  const bare = split(0)
+  if (bare.length <= 1) return bare
+  let parts = split(CHUNK_MARKER_BUDGET)
+  if (parts.length > 99) parts = split(11)
+  return withChunkMarkers(parts)
+}
+
+// Ostrzezenie dla NADAWCY przy wysylce wieloczesciowej (O51, zmierzone 2026-08-21).
+// Nie jest to teoretyczne ryzyko: kolejka wejsciowa harnessu odbiorcy dostarcza jako
+// normalna ture tylko te czesci, ktore czekaly, gdy odbiorca byl ZAJETY. Jesli byl
+// BEZCZYNNY, czesc 1 startuje ture w ~6 ms, a reszta ladnie wpada w kolejke i zostaje
+// z niej USUNIETA — wraca dopiero jako meta-zalacznik w pozniejszej turze albo wcale.
+// Nadawca nie ma jak tego wykryc z IRC, wiec przynajmniej niech WIE, ze wyslal serie.
+function multipartWarning(n: number): string {
+  return n > 1
+    ? ` ⚠️ ${n} czesci = ${n} osobnych wiadomosci u odbiorcy; ogon serii bywa dostarczany z opoznieniem`
+      + ' albo wcale (O51). Przy czyms waznym popros o potwierdzenie CYTATEM Z KONCOWKI.'
+    : ''
+}
+
 const missing: string[] = []
 if (!IRC_HOST)     missing.push('IRC_HOST')
 if (!IRC_NICK)     missing.push('IRC_NICK')
@@ -1095,21 +1140,19 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         // Nasluch odmowy startuje PRZED wysylka — Ergo odpowiada 404 w jednostkach ms,
         // wiec podlaczenie sie po `say()` gubi czesc odmow (O50).
         const rejWatch = watchForRejection(conn.client as never, channel, SEND_GRACE_MS)
-        let sentParts = 0
-        for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          for (const line of chunkForSend(rawLine)) {
-            const tags = signMessage(conn.config.nick, channel, line)
-            conn.client.say(channel, line, tags ?? undefined)
-            sentParts++
-          }
+        const parts = buildSendParts(text)
+        for (const line of parts) {
+          const tags = signMessage(conn.config.nick, channel, line)
+          conn.client.say(channel, line, tags ?? undefined)
         }
+        const sentParts = parts.length
         const rejection = await rejWatch.settle()
         if (rejection) throw new Error(rejectionMessage(rejection, channel))
         // Liczba WYSLANYCH czesci wraca do wolajacego, zeby dalo sie porownac ja
         // z tym, co odbiorca zobaczyl (O40: trzy razy dotarl tylko poczatek).
         // „brak odmowy" NIE jest dowodem dostarczenia — IRC nie daje pozytywnego ACK.
         // Mowimy dokladnie tyle, ile wiemy (O50).
-        return { content: [{ type: 'text', text: `sent to ${channel}${sentParts > 1 ? ` (${sentParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms` }] }
+        return { content: [{ type: 'text', text: `sent to ${channel}${sentParts > 1 ? ` (${sentParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms${multipartWarning(sentParts)}` }] }
       }
 
       case 'dm': {
@@ -1123,17 +1166,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         // takiego nicka), 716/531 (adresat nie przyjmuje DM-ow). Wczesniej narzedzie
         // meldowalo sukces takze wtedy.
         const dmRejWatch = watchForRejection(conn.client as never, nick, SEND_GRACE_MS)
-        let sentDmParts = 0
-        for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
-          for (const line of chunkForSend(rawLine)) {
-            const tags = signMessage(conn.config.nick, nick, line)
-            conn.client.say(nick, line, tags ?? undefined)
-            sentDmParts++
-          }
+        const dmParts = buildSendParts(text)
+        for (const line of dmParts) {
+          const tags = signMessage(conn.config.nick, nick, line)
+          conn.client.say(nick, line, tags ?? undefined)
         }
+        const sentDmParts = dmParts.length
         const dmRejection = await dmRejWatch.settle()
         if (dmRejection) throw new Error(rejectionMessage(dmRejection, nick))
-        return { content: [{ type: 'text', text: `DM sent to ${nick}${sentDmParts > 1 ? ` (${sentDmParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms` }] }
+        return { content: [{ type: 'text', text: `DM sent to ${nick}${sentDmParts > 1 ? ` (${sentDmParts} czesci)` : ''} — serwer nie odmowil w ${SEND_GRACE_MS} ms${multipartWarning(sentDmParts)}` }] }
       }
 
       case 'who': {
