@@ -151,14 +151,14 @@ const IRC_SKILLS   = process.env.IRC_SKILLS?.trim() || undefined
 // Budget: 512 − worst-case relay prefix (":nick!user@host " ~60) − "PRIVMSG "
 // (8) − target (up to ~32) − " :" (2) − CRLF (2) ≈ 400 bytes of body. We use a
 // conservative 400-byte budget measured in UTF-8 bytes.
-const SIGNED_BODY_MAX_BYTES = 400
+export const SIGNED_BODY_MAX_BYTES = 400
 
 /**
  * Split a single logical line into UTF-8-byte-bounded chunks, breaking on word
  * boundaries where possible (falling back to hard breaks for long words).
  * Never splits inside a multi-byte UTF-8 sequence.
  */
-function chunkLine(line: string, maxBytes: number): string[] {
+export function chunkLine(line: string, maxBytes: number): string[] {
   if (Buffer.byteLength(line, 'utf8') <= maxBytes) return [line]
 
   const chunks: string[] = []
@@ -206,7 +206,7 @@ function chunkLine(line: string, maxBytes: number): string[] {
  * chunk) nie placi rezerwy i nie dostaje znacznika: jednej czesci nie da sie
  * zgubic „w polowie serii", wiec znacznik bylby tam czystym szumem.
  */
-function chunkForSend(line: string): string[] {
+export function chunkForSend(line: string): string[] {
   const single = chunkLine(line, SIGNED_BODY_MAX_BYTES)
   if (single.length <= 1) return single
   let reserve = CHUNK_MARKER_BUDGET
@@ -239,7 +239,7 @@ function chunkForSend(line: string): string[] {
  * ZADNEGO sygnalu, ze brakuje reszty. Numeracja przez cala serie zamienia te cicha
  * utrate w glosna: „[1/12]" bez [2/12] jest natychmiast widoczne dla odbiorcy.
  */
-function buildSendParts(text: string): string[] {
+export function buildSendParts(text: string): string[] {
   const lines = text.split(/\r\n|\n|\r/).filter(l => l.length > 0)
   const split = (reserve: number) =>
     lines.flatMap(l => chunkLine(l, SIGNED_BODY_MAX_BYTES - reserve))
