@@ -14,7 +14,7 @@
 
 import { test, expect, describe } from 'bun:test'
 import { chunkLine, chunkForSend, buildSendParts, SIGNED_BODY_MAX_BYTES } from '../server'
-import { CHUNK_MARKER_BUDGET } from '../format'
+import { CHUNK_MARKER_BUDGET, WIRE_LINE_SEP } from '../format'
 
 const bytes = (s: string) => Buffer.byteLength(s, 'utf8')
 const everyPartFits = (parts: string[]) => parts.every(p => bytes(p) <= SIGNED_BODY_MAX_BYTES)
@@ -105,11 +105,25 @@ describe('UTF-8 nie jest lamany w srodku znaku', () => {
 })
 
 describe('buildSendParts: numeracja przez CALA serie, nie per linia (O51)', () => {
-  test('kilka krotkich linii dostaje wspolna numeracje', () => {
+  // 🔴 ZMIANA INTENCJI, 2026-09-17: trzy testy w tym bloku sprawdzaly wczesniej, ze
+  // „n krotkich linii = n czesci". To BYLA opisywana tu implementacja — i okazala sie
+  // defektem: podzial po kazdej linii jest twarda PODLOGA liczby PRIVMSG-ow, a odbiorca
+  // codexowy budzi PELNA TURE na kazdy PRIVMSG (zmierzone po obu stronach: 26 wywolan
+  // `dm` → 696 PRIVMSG → 696 tur). Teraz krotkie linie pakuja sie do wspolnej czesci.
+  // Asercje ponizej pilnuja tego, co te testy naprawde chronily — wspolnej numeracji
+  // przez cala serie, odsiewania pustych linii i rozpoznawania CRLF/CR — tylko juz
+  // w spakowanej postaci. Sam mnoznik ma wlasny test w `coalesce.test.ts`.
+  test('kilka krotkich linii pakuje sie do JEDNEJ czesci (dawniej: jedna na linie)', () => {
     const parts = buildSendParts('pierwsza\ndruga\ntrzecia')
-    expect(parts.length).toBe(3)
-    expect(parts[0].startsWith('[1/3] ')).toBe(true)
-    expect(parts[2].startsWith('[3/3] ')).toBe(true)
+    expect(parts.length).toBe(1)
+    expect(parts[0]).toBe(`pierwsza${WIRE_LINE_SEP}druga${WIRE_LINE_SEP}trzecia`)
+  })
+
+  test('wspolna numeracja przez cala serie, gdy tresc naprawde nie miesci sie w jednej czesci', () => {
+    const parts = buildSendParts(Array.from({ length: 40 }, (_, i) => `linia ${i} ${'y'.repeat(30)}`).join('\n'))
+    expect(parts.length).toBeGreaterThan(2)
+    expect(parts.every((p, i) => p.startsWith(`[${i + 1}/${parts.length}] `))).toBe(true)
+    expect(everyPartFits(parts)).toBe(true)
   })
 
   test('jedna linia = jedna czesc = brak znacznika', () => {
@@ -117,7 +131,7 @@ describe('buildSendParts: numeracja przez CALA serie, nie per linia (O51)', () =
   })
 
   test('puste linie sa odsiewane, a nie wysylane jako puste PRIVMSG', () => {
-    expect(buildSendParts('a\n\n\nb')).toEqual(['[1/2] a', '[2/2] b'])
+    expect(buildSendParts('a\n\n\nb')).toEqual([`a${WIRE_LINE_SEP}b`])
   })
 
   test('mieszanka: dluga linia + krotka numeruje sie ciagiem przez cala serie', () => {
@@ -127,9 +141,11 @@ describe('buildSendParts: numeracja przez CALA serie, nie per linia (O51)', () =
     expect(parts.every((p, i) => p.startsWith(`[${i + 1}/${parts.length}] `))).toBe(true)
   })
 
-  test('CRLF i CR traktowane jak podzial linii', () => {
-    expect(buildSendParts('a\r\nb').length).toBe(2)
-    expect(buildSendParts('a\rb').length).toBe(2)
+  test('CRLF i CR nadal traktowane jak podzial linii (teraz widac to po separatorze)', () => {
+    expect(buildSendParts('a\r\nb')).toEqual([`a${WIRE_LINE_SEP}b`])
+    expect(buildSendParts('a\rb')).toEqual([`a${WIRE_LINE_SEP}b`])
+    // kontrola negatywna: bez podzialu linii separator NIE pojawia sie znikad
+    expect(buildSendParts('ab')).toEqual(['ab'])
   })
 })
 

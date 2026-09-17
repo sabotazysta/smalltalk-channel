@@ -221,6 +221,43 @@ export function chunkForSend(line: string): string[] {
 }
 
 /**
+ * Pakuje KOLEJNE linie do wspolnego PRIVMSG-a az do limitu bajtow, zamiast wysylac
+ * kazda linie osobno (2026-09-17, warstwa 2 naprawy mnoznika).
+ *
+ * DLACZEGO: „jedna linia = jeden PRIVMSG" bylo twarda PODLOGA liczby wiadomosci —
+ * akapit, wiersz tabeli, nawet samo ``` szly osobno (78 razy w dobe). Zmierzona
+ * wiadomosc z 11:23: 4122 B w 70 niepustych liniach → 70 PRIVMSG-ow, mimo ze przy
+ * budzecie 400 B mieszcza sie w ~11. Srednia linia miala 59 B, czyli ~15% budzetu.
+ *
+ * Linia DLUZSZA niz budzet nie jest pakowana z sasiadami — jej kawalki ida jako
+ * wlasne czesci. To celowe: `chunkLine` tnie w srodku linii, a sklejenie takiego
+ * kawalka z NASTEPNA linia separatorem ⏎ wstawiloby lamanie, ktorego w tresci nie
+ * bylo. Lepiej zaplacic jednym PRIVMSG-iem wiecej niz zmyslic strukture tekstu.
+ */
+export function packLines(lines: string[], maxBytes: number): string[] {
+  const out: string[] = []
+  let cur = ''
+  const flush = () => { if (cur) { out.push(cur); cur = '' } }
+
+  for (const line of lines) {
+    if (Buffer.byteLength(line, 'utf8') > maxBytes) {
+      flush()
+      out.push(...chunkLine(line, maxBytes))
+      continue
+    }
+    const candidate = cur ? cur + WIRE_LINE_SEP + line : line
+    if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
+      cur = candidate
+    } else {
+      flush()
+      cur = line
+    }
+  }
+  flush()
+  return out
+}
+
+/**
  * Buduje WSZYSTKIE czesci jednej wysylki (calego `text`, po wszystkich liniach)
  * i numeruje je [k/n] przez cala serie — a nie osobno w obrebie kazdej linii.
  *
@@ -242,7 +279,7 @@ export function chunkForSend(line: string): string[] {
 export function buildSendParts(text: string): string[] {
   const lines = text.split(/\r\n|\n|\r/).filter(l => l.length > 0)
   const split = (reserve: number) =>
-    lines.flatMap(l => chunkLine(l, SIGNED_BODY_MAX_BYTES - reserve))
+    packLines(lines, SIGNED_BODY_MAX_BYTES - reserve)
   // Jedna czesc nie moze byc „ucieta w polowie serii" — nie placi rezerwy i nie
   // dostaje znacznika (ta sama zasada co w chunkForSend).
   const bare = split(0)
@@ -297,7 +334,17 @@ type PendingNames = {
   timer: ReturnType<typeof setTimeout>
 }
 
-import { getEventTs, formatHistoryMessage, withChunkMarkers, CHUNK_MARKER_BUDGET, type HistoryMessage } from './format'
+import { getEventTs, formatHistoryMessage, withChunkMarkers, CHUNK_MARKER_BUDGET, WIRE_LINE_SEP, type HistoryMessage } from './format'
+import { Coalescer, coalesceKey, joinWarning, type Joined, type VerificationStatus } from './coalesce'
+// Sklejanie fragmentow przychodzacych (2026-09-17). Okno wyprowadzone z POMIARU, nie
+// z glowy — pelne uzasadnienie liczby w naglowku `coalesce.ts`. W skrocie: odstepy
+// miedzy fragmentami jednej wysylki maja p90 = 4 ms i najgorszy zmierzony przypadek
+// 60 ms, a najkrotsza zmierzona przerwa MIEDZY osobnymi wypowiedziami to ~3,8 s.
+// 400 ms siedzi z duzym zapasem miedzy tymi dwiema liczbami.
+const COALESCE_WINDOW_MS = Number(process.env.SMALLTALK_COALESCE_MS ?? 400)
+// Sufit liczony od PIERWSZEGO fragmentu: nadawca piszacy bez przerwy nie moze odsunac
+// doreczenia w nieskonczonosc. Pilna wiadomosc czeka najwyzej tyle.
+const COALESCE_MAX_WAIT_MS = Number(process.env.SMALLTALK_COALESCE_MAX_WAIT_MS ?? 5_000)
 import { watchForRejection, rejectionMessage } from './send-ack.ts'
 // Okno oczekiwania na numeryk odmowy po PRIVMSG (O50). IRC nie ma pozytywnego ACK:
 // serwer milczy przy sukcesie, odpowiada numerykiem przy odrzuceniu. 400 ms wystarcza
@@ -366,6 +413,13 @@ function getState(host: string, port: number): ConnState {
 
 const pool = new ConnectionPool()
 
+// Bufor sklejania fragmentow przychodzacych. Jeden na proces — klucz niesie serwer,
+// wiec polaczenia sie nie mieszaja.
+const coalescer = new Coalescer({
+  windowMs: COALESCE_WINDOW_MS,
+  maxWaitMs: COALESCE_MAX_WAIT_MS,
+})
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -396,6 +450,9 @@ function emitHighPriority(opts: {
   ts: string
   mention: boolean
   source?: string
+  /** Ile PRIVMSG-ow sklejono w te jedna wypowiedz. W meta, nie w tresci — informacja
+   *  diagnostyczna nie ma zasmiecac tego, co czyta odbiorca. */
+  parts?: string
 }) {
   void mcp.notification({
     method: 'notifications/claude/channel',
@@ -408,6 +465,7 @@ function emitHighPriority(opts: {
         priority: 'high',
         mention: opts.mention ? 'true' : 'false',
         ...(opts.source ? { source: opts.source } : {}),
+        ...(opts.parts && opts.parts !== '1' ? { parts: opts.parts } : {}),
       },
     },
   })
@@ -510,64 +568,103 @@ async function handleMessage(conn: Connection, event: {
 
   const targetLower = event.target.toLowerCase()
   const isChannelMsg = event.target.startsWith('#') || event.target.startsWith('&')
-  const isDM = !isChannelMsg
-  const prefix = serverPrefix(conn)
   const source = normalizeHost(conn.config.host)
 
   // TIER 3: Own messages
   if (event.nick === myNick) return
 
-  // Signature verification — async, non-blocking to routing logic
+  // Kanal, do ktorego nie nalezymy, odpada PRZED buforem: nie ma po co buforowac
+  // czegos, czego i tak nie zglosimy. (Wczesniej ten warunek stal nizej, po galezi
+  // DM — kolejnosc jest rownowazna, bo dotyczy wylacznie wiadomosci kanalowych.)
+  if (isChannelMsg && !st.joinedChannels.has(targetLower)) return
+
+  // Weryfikacja podpisu leci per FRAGMENT, bo kazdy PRIVMSG jest podpisany osobno
+  // (`signMessage` podpisuje cialo konkretnego chunka). Statusy laczymy dopiero przy
+  // sklejaniu, zasada „najgorszy wygrywa" — patrz `worstVerification`.
   let verificationResult: VerificationResult = { status: 'unverified' }
   if (event.tags && Object.keys(event.tags).length > 0) {
     const tagsMap = new Map(Object.entries(event.tags))
     verificationResult = await verifyMessage(tagsMap, event.nick, event.target, event.message)
   }
-  const verifiedPrefix = verificationResult.status === 'verified' ? '[verified] '
-    : verificationResult.status === 'stranger' ? '[stranger] '
-    : verificationResult.status === 'verification_failed' ? '[⚠️unverified] '
+
+  // 🔴 SKLEJANIE: stad w dol nie ma juz routingu per-PRIVMSG. Fragmenty jednej
+  // wypowiedzi ladują do bufora (nadawca + cel + serwer), a routing — DM / #urgent /
+  // mention / throttle — liczymy RAZ, na calej sklejonej tresci. Efekt uboczny, ktory
+  // jest sam w sobie naprawa: `isMention` widzi teraz PELNY tekst, a nie pojedynczy
+  // akapit, wiec wzmianka w 5. linii przestaje byc gubiona przez podzial.
+  coalescer.push(
+    coalesceKey(source, event.nick, event.target),
+    { text: event.message, ts, verification: verificationResult.status as VerificationStatus },
+    joined => routeJoined(conn, event.target, event.nick, joined),
+  )
+}
+
+/**
+ * Routing JEDNEJ, juz sklejonej wypowiedzi. Wczesniej ta logika siedziala w ciele
+ * `handleMessage` i wykonywala sie raz na PRIVMSG — czyli 70 razy na jedna wiadomosc
+ * buskera i 70 razy budzila odbiorce.
+ */
+function routeJoined(conn: Connection, target: string, nick: string, joined: Joined): void {
+  const st = getState(conn.config.host, conn.config.port)
+  const gateChannel = (conn.config.gateChannel ?? '#urgent').toLowerCase()
+  const myNick = conn.config.nick
+  const targetLower = target.toLowerCase()
+  const isChannelMsg = target.startsWith('#') || target.startsWith('&')
+  const isDM = !isChannelMsg
+  const prefix = serverPrefix(conn)
+  const source = normalizeHost(conn.config.host)
+  const ts = joined.ts
+
+  const verifiedPrefix = joined.verification === 'verified' ? '[verified] '
+    : joined.verification === 'stranger' ? '[stranger] '
+    : joined.verification === 'verification_failed' ? '[⚠️unverified] '
     : ''  // unverified = no prefix (pre-flag-day default, clean output)
+
+  // Braki w serii [k/n] i niepewna kolejnosc ida do tresci JAWNIE — sklejenie nie ma
+  // prawa ukryc dziury, bo ucieta wiadomosc jest nieodrozninalna od bezsensownej (O40).
+  const body = joined.text + joinWarning(joined)
+  const parts = String(joined.parts)
 
   // TIER 1: Direct messages
   if (isDM) {
     emitHighPriority({
-      content: `${prefix}${verifiedPrefix}[DM from ${event.nick}]: ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[DM from ${nick}]: ${body}`,
       channel: 'dm',
-      nick: event.nick,
+      nick,
       ts,
       mention: false,
       source,
+      parts,
     })
     return
   }
 
-  // Only forward from joined channels
-  if (!st.joinedChannels.has(targetLower)) return
-
-  const channel = event.target
+  const channel = target
 
   // TIER 1: #urgent
   if (targetLower === gateChannel) {
     emitHighPriority({
-      content: `${prefix}${verifiedPrefix}[${channel}] <${event.nick}> ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[${channel}] <${nick}> ${body}`,
       channel,
-      nick: event.nick,
+      nick,
       ts,
       mention: false,
       source,
+      parts,
     })
     return
   }
 
-  // TIER 1: Mentions
-  if (isMention(event.message, myNick)) {
+  // TIER 1: Mentions — sprawdzane na PELNEJ tresci, nie na pojedynczym fragmencie
+  if (isMention(joined.text, myNick)) {
     emitHighPriority({
-      content: `${prefix}${verifiedPrefix}[MENTION] <${event.nick}> in ${channel}: ${event.message}`,
+      content: `${prefix}${verifiedPrefix}[MENTION] <${nick}> in ${channel}: ${body}`,
       channel,
-      nick: event.nick,
+      nick,
       ts,
       mention: true,
       source,
+      parts,
     })
     return
   }
@@ -576,13 +673,15 @@ async function handleMessage(conn: Connection, event: {
   const now = Date.now()
   let entry = st.channelThrottle.get(targetLower)
   if (!entry) {
-    entry = { lastNotified: 0, buffered: 0, lastNick: event.nick, lastText: event.message, bufferTimeout: null }
+    entry = { lastNotified: 0, buffered: 0, lastNick: nick, lastText: body, bufferTimeout: null }
     st.channelThrottle.set(targetLower, entry)
   }
 
+  // Liczymy WYPOWIEDZI, nie fragmenty: „[12 messages in #dev]" znaczylo dotad
+  // „12 kawalkow", co przy jednej dluzszej wiadomosci bylo po prostu nieprawda.
   entry.buffered += 1
-  entry.lastNick = event.nick
-  entry.lastText = event.message
+  entry.lastNick = nick
+  entry.lastText = body
 
   const timeSinceLast = now - entry.lastNotified
   if (timeSinceLast >= THROTTLE_WINDOW_MS) {
@@ -1449,6 +1548,10 @@ await mcp.connect(transport)
 
 function shutdown(signal: string) {
   process.stderr.write(`smalltalk channel: received ${signal}, disconnecting...\n`)
+  // Bufor sklejania ma oddac to, co trzyma, ZANIM zginiemy — inaczej czysty SIGTERM
+  // w zlym momencie zjadalby do 400 ms cudzej wypowiedzi bez sladu. Nie ratuje to
+  // zabicia SIGKILL-em ani padu procesu; to ograniczenie jest wpisane w raport.
+  try { coalescer.flushAll() } catch {}
   for (const conn of pool.getAll()) {
     try { conn.client.quit('Claude Code shutting down') } catch {}
   }

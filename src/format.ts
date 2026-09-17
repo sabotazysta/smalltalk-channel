@@ -60,3 +60,40 @@ export function withChunkMarkers(chunks: string[]): string[] {
   if (chunks.length <= 1) return chunks
   return chunks.map((c, i) => chunkMarkerPrefix(i, chunks.length) + c)
 }
+
+// ---------------------------------------------------------------------------
+// Separator linii W DRUCIE + odczyt znacznika [k/n] (sklejanie odbioru, 2026-09-17)
+// ---------------------------------------------------------------------------
+// PRIVMSG nie przenosi znaku nowej linii — dlatego `buildSendParts` tnie tekst po
+// liniach i wysyla kazda osobno. To wlasnie ten podzial mnozy tury u odbiorcy
+// (26 wywolan `dm` → 696 PRIVMSG → 696 tur). Pakowanie kilku linii do jednego
+// PRIVMSG wymaga wiec separatora, ktory:
+//   • przezyje przejscie przez IRC jako zwykly tekst,
+//   • jest czytelny dla czlowieka w kliencie BEZ tej poprawki (widzi ⏎ zamiast lamania),
+//   • praktycznie nie wystepuje w normalnej tresci, wiec nie rozetnie zdania przypadkiem.
+// U+23CE (RETURN SYMBOL) w spacjach spelnia wszystkie trzy. Odbiorca z ta poprawka
+// zamienia go z powrotem na \n (`unpackWireLines`); odbiorca bez niej widzi glif.
+export const WIRE_LINE_SEP = ' ⏎ '
+
+/** Zamienia separator drutowy z powrotem na prawdziwe znaki nowej linii. */
+export function unpackWireLines(s: string): string {
+  return s.split(WIRE_LINE_SEP).join('\n')
+}
+
+export type ChunkMarker = { index: number; total: number; body: string }
+
+/**
+ * Czyta znacznik [k/n] z poczatku fragmentu — odwrotnosc `chunkMarkerPrefix`.
+ * Dzieki niemu odbiorca potrafi ODTWORZYC kolejnosc serii, ktora przyszla
+ * pomieszana (raport 2026-09-17 odnotowal fragmenty poza kolejnoscia).
+ * null = fragment nie jest czescia numerowanej serii.
+ */
+export function parseChunkMarker(text: string): ChunkMarker | null {
+  const m = /^\[(\d+)\/(\d+)\] ([\s\S]*)$/.exec(text)
+  if (!m) return null
+  const index = Number(m[1])
+  const total = Number(m[2])
+  if (!Number.isFinite(index) || !Number.isFinite(total)) return null
+  if (index < 1 || total < 1 || index > total) return null
+  return { index, total, body: m[3]! }
+}
