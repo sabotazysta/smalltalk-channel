@@ -143,10 +143,119 @@ describe('nic nie ginie', () => {
     expect(joinWarning(joined)).toContain('brakuje czesci 2 z 3')
   })
 
-  test('duplikat tego samego [k/n] nie mnozy tresci', () => {
+  test('duplikat tego samego [k/n] Z TA SAMA trescia nie mnozy tresci', () => {
     const joined = join([frag('[1/2] a'), frag('[1/2] a'), frag('[2/2] b')])
     expect(joined.text).toBe('a\nb')
     expect(joined.missing).toEqual([])
+  })
+
+  test('kazde ostrzezenie uczy ruchu odzysku (fetch_history)', () => {
+    expect(joinWarning(join([frag('[1/3] a'), frag('[3/3] c')]))).toContain('fetch_history')
+    expect(joinWarning(join([frag('druga'), frag('pierwsza')]))).toContain('fetch_history')
+    // brak powodu do ostrzezenia = brak szumu
+    expect(joinWarning(join([frag('[1/2] a'), frag('[2/2] b')]))).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 🔴 KANT A z review policedoga: dwie ROZNE serie od TEGO SAMEGO nicka wpadaja do
+// jednego bufora (klucz `serwer|nick|cel` ich nie rozroznia). Przed poprawka dawalo to
+// cicha utrate tresci ORAZ falszywe ostrzezenie — jedno i drugie naraz.
+describe('przeplot DWOCH serii tego samego nicka — nic nie ginie, warning nie klamie', () => {
+  test('{1a, 1b, 2a, 2b}: CALA tresc kazdego fragmentu jest w emisji', () => {
+    const joined = join([frag('[1/2] a'), frag('[1/2] b'), frag('[2/2] a2'), frag('[2/2] b2')])
+    for (const body of ['a', 'b', 'a2', 'b2']) {
+      expect(joined.text).toContain(body)
+    }
+    expect(joined.parts).toBe(4)
+  })
+
+  test('{1a, 1b, 2a}: kolizja znacznikow NIE jest ogloszona jako pewna kolejnosc', () => {
+    const joined = join([frag('[1/2] a'), frag('[1/2] b'), frag('[2/2] a2')])
+    expect(joined.ordered).toBe(false)
+    expect(joined.orderReason).toBe('conflicting')
+    expect(joined.text).toContain('a')
+    expect(joined.text).toContain('b')
+    expect(joined.text).toContain('a2')
+  })
+
+  test('warning nazywa kolizje wprost i nie klamie, ze zabraklo znacznikow', () => {
+    const w = joinWarning(join([frag('[1/2] a'), frag('[1/2] b'), frag('[2/2] a2')]))
+    expect(w).toContain('KLOCA')
+    expect(w).not.toContain('brak znacznikow')
+    expect(w).toContain('fetch_history')
+  })
+
+  test('kolizja NIE wyzwala natychmiastowego flushu (dawniej: seen={1,2} => "komplet")', () => {
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    const wakeups: Joined[] = []
+    c.push('k', frag('[1/2] a'), j => wakeups.push(j))
+    c.push('k', frag('[1/2] b'), j => wakeups.push(j))
+    c.push('k', frag('[2/2] a2'), j => wakeups.push(j))
+    expect(wakeups.length).toBe(0)        // stara wersja emitowala TUTAJ, gubiac 'b'
+    clock.advance(1_000)
+    expect(wakeups.length).toBe(1)
+    expect(wakeups[0]!.parts).toBe(3)
+  })
+
+  test('NADMIAR fragmentow blokuje skrot natychmiastowego flushu', () => {
+    // {1a, 1a, 2b}: znaczniki spojne, ale frags.length (3) != total (2) — czekamy na okno,
+    // zamiast brac na skroty cos, czego nie umiem nazwac.
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    const wakeups: Joined[] = []
+    c.push('k', frag('[1/2] a'), j => wakeups.push(j))
+    c.push('k', frag('[1/2] a'), j => wakeups.push(j))
+    c.push('k', frag('[2/2] b'), j => wakeups.push(j))
+    expect(wakeups.length).toBe(0)
+    clock.advance(1_000)
+    expect(wakeups[0]!.text).toBe('a\nb')  // identyczna retransmisja dalej scalana
+  })
+
+  test('kontrola dodatnia: czysta seria DALEJ leci natychmiast', () => {
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    const wakeups: Joined[] = []
+    c.push('k', frag('[1/2] a'), j => wakeups.push(j))
+    c.push('k', frag('[2/2] b'), j => wakeups.push(j))
+    expect(wakeups.length).toBe(1)
+    expect(wakeups[0]!.orderReason).toBe('marked')
+  })
+})
+
+// ---------------------------------------------------------------------------
+describe('metryka produkcyjna: serie rozszczepione spoznionym fragmentem', () => {
+  test('spozniony fragment po serii wieloczesciowej jest POLICZONY', () => {
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    c.push('k', frag('a'), () => {})
+    c.push('k', frag('b'), () => {})
+    clock.advance(400)                    // flush #1, parts=2
+    expect(c.stats().splitSeries).toBe(0)
+    c.push('k', frag('spozniony ogon'), () => {})
+    clock.advance(400)                    // flush #2 w <1 s od poprzedniego
+    expect(c.stats().splitSeries).toBe(1)
+  })
+
+  test('normalna rozmowa (osobne wypowiedzi w odstepach) NIE podbija licznika', () => {
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    for (let i = 0; i < 5; i++) {
+      c.push('k', frag(`wypowiedz ${i}`), () => {})
+      clock.advance(4_000)
+    }
+    expect(c.stats().splitSeries).toBe(0)
+  })
+
+  test('po pojedynczej wiadomosci (parts=1) szybka nastepna to nie rozszczepienie', () => {
+    const clock = fakeClock()
+    const c = new Coalescer({ windowMs: 400, maxWaitMs: 5_000, ...clock.opts })
+    c.push('k', frag('krotka'), () => {})
+    clock.advance(400)
+    c.push('k', frag('zaraz druga'), () => {})
+    clock.advance(400)
+    expect(c.stats().splitSeries).toBe(0)
   })
 })
 

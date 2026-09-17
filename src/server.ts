@@ -1477,6 +1477,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           }
         }
 
+        // Metryka sklejania — jedyna liczba, ktora po wdrozeniu rozstrzyga, czy okno trzyma
+        // w REALU (wyprowadzone bylo z danych SPRZED zmiany protokolu wysylki, a `packLines`
+        // zmienia strukture serii). `splitSeries` rosnacy = okno za krotkie, nie „dziala".
+        const cs = coalescer.stats()
+        lines.push(
+          `sklejanie: okno ${COALESCE_WINDOW_MS} ms (sufit ${COALESCE_MAX_WAIT_MS} ms), ` +
+          `w buforze ${cs.pending}, serii rozszczepionych spoznionym fragmentem: ${cs.splitSeries}`
+        )
+
         return { content: [{ type: 'text', text: lines.join('\n') }] }
       }
 
