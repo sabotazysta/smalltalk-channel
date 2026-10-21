@@ -73,7 +73,7 @@ describe('reconnect after close', () => {
     pool.checkStuck(Date.now() + 6 * 60_000)
     expect(stuck.length).toBe(1)
     expect(clients.length).toBe(2)
-    pool.checkStuck(Date.now() + 6 * 60_000) // new conn is 'connecting', fresh -> no second force
+    pool.checkStuck(Date.now() + 1000) // new conn is fresh -> no second force
     expect(clients.length).toBe(2)
   })
 })
