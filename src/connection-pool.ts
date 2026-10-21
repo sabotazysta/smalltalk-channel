@@ -32,6 +32,12 @@ export interface Connection {
   channels: Set<string>
   status: ConnectionStatus
   connectedAt: Date | null
+  /** ms epoch when we last became non-connected (or started connecting); watchdog input. */
+  disconnectedAt: number
+  /** pending forced-reconnect timer (set by our close handler); cleared by disconnect(). */
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  /** true once disconnect() was called -- close events must never trigger a reconnect. */
+  closing: boolean
 }
 
 // Strip protocol prefixes to get a bare host for use as map key.
@@ -62,6 +68,13 @@ function resolveKey(connections: Map<string, Connection>, server: string): strin
 export class ConnectionPool {
   private connections = new Map<string, Connection>()
   private primaryHost: string | null = null
+  // Consecutive failed (re)connects per key, for our own backoff. Reset once a
+  // registered session survives > SAFE_SESSION_MS.
+  private failures = new Map<string, number>()
+  private watchdog: ReturnType<typeof setInterval> | null = null
+  public stuckAfterMs = 5 * 60_000
+  public watchdogIntervalMs = 30_000
+  public baseWaitMs = 3000
 
   // Callbacks that consumers can hook into to react to IRC events per-connection.
   // server.ts sets these up after constructing the pool.
@@ -81,6 +94,7 @@ export class ConnectionPool {
   public onKick?: (conn: Connection, event: { channel: string; kicked: string }) => void
   public onReconnecting?: (conn: Connection, event: { attempt: number; max_retries: number; wait: number }) => void
   public onClose?: (conn: Connection) => void
+  public onStuck?: (conn: Connection, event: { disconnectedForMs: number }) => void
   public onSocketClose?: (conn: Connection) => void
   public onClientError?: (conn: Connection, err: Error) => void
   public onPreRegRaw?: (conn: Connection, line: string) => void
@@ -108,7 +122,11 @@ export class ConnectionPool {
       channels: new Set<string>(),
       status: 'connecting',
       connectedAt: null,
+      disconnectedAt: Date.now(),
+      reconnectTimer: null,
+      closing: false,
     }
+    this.startWatchdog()
 
     this.connections.set(key, conn)
 
@@ -127,6 +145,7 @@ export class ConnectionPool {
     client.on('registered', () => {
       conn.status = 'connected'
       conn.connectedAt = new Date()
+      conn.disconnectedAt = 0
       // Bug #3: set primaryHost only after successful registration, not before connect()
       if (this.primaryHost === null) {
         this.primaryHost = key  // key is now host:port
@@ -213,23 +232,21 @@ export class ConnectionPool {
         this.onClientError?.(conn, maybeErr)
       }
       this.onClose?.(conn)
-      // Self-heal workaround for an irc-framework gap (2026-08-12/13, root-caused via
-      // floppy's recurring connect/disconnect flap): irc-framework's own auto_reconnect
-      // only fires if reconnect_attempts > 0 OR (was_connected && safely_registered) --
-      // a connection whose VERY FIRST attempt fails/closes before ever registering
-      // satisfies neither condition, so the library's own retry logic never kicks in and
-      // the connection is abandoned forever regardless of our auto_reconnect config. Force
-      // our own retry in exactly that case so a cold-boot registration hang can't strand a
-      // bridge permanently. Tested against the real irc-framework shape, 3/3 passing
-      // (see connection-pool-fix.patch / test-scratch in bandit's research notes).
-      if (conn.connectedAt === null && this.connections.get(key) === conn) {
-        this.connections.delete(key)
-        setTimeout(() => { this.connect(config).catch(() => {}) }, 3000)
+      // Self-heal for an irc-framework gap (floppy flap 2026-08-12/13; bandit 2026-10-21):
+      // 'close' means irc-framework gave up. It reconnects only if reconnect_attempts > 0
+      // OR (was_connected && registered > 5 s ago), so a first attempt that dies before
+      // registering, OR a session that registers and drops within 5 s (reconnect_attempts
+      // was reset to 0 by the socket opening), is abandoned forever. The old workaround
+      // only covered connectedAt === null and missed the second case. Now: ANY 'close'
+      // that we did not initiate (disconnect() sets conn.closing) schedules a retry.
+      if (!conn.closing && this.connections.get(key) === conn) {
+        this.scheduleReconnect(key, conn)
       }
     })
 
     client.on('socket close', () => {
       conn.status = 'disconnected'
+      if (!conn.disconnectedAt) conn.disconnectedAt = Date.now()
       conn.channels.clear()
       this.onSocketClose?.(conn)
     })
@@ -252,6 +269,54 @@ export class ConnectionPool {
         : {}),
     })
 
+  }
+
+  private scheduleReconnect(key: string, conn: Connection): void {
+    if (conn.reconnectTimer) return // already pending -> never double-schedule
+    if (conn.connectedAt && Date.now() - conn.connectedAt.getTime() > 5000) {
+      this.failures.set(key, 0)
+    }
+    const n = this.failures.get(key) ?? 0
+    this.failures.set(key, n + 1)
+    const wait = Math.min(this.baseWaitMs * 2 ** Math.min(n, 5), 60_000) + Math.floor(Math.random() * 1000)
+    if (!conn.disconnectedAt) conn.disconnectedAt = Date.now()
+    this.onReconnecting?.(conn, { attempt: n + 1, max_retries: 999, wait })
+    conn.reconnectTimer = setTimeout(() => {
+      conn.reconnectTimer = null
+      this.reconnectNow(key, conn)
+    }, wait)
+  }
+
+  // Replace a dead connection with a fresh one. Guarded so a stale timer can never
+  // clobber a connection that was disconnected or replaced in the meantime.
+  private reconnectNow(key: string, conn: Connection): void {
+    if (conn.closing || this.connections.get(key) !== conn) return
+    if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null }
+    conn.closing = true // old client's late events must not schedule anything
+    try { conn.client.options.auto_reconnect = false } catch {}
+    conn.client.removeAllListeners()
+    try { (conn.client as any).end?.() } catch {}
+    this.connections.delete(key)
+    this.connect(conn.config).catch(() => {
+      // synchronous setup failure: put a placeholder-free retry on the books
+      setTimeout(() => this.connect(conn.config).catch(() => {}), this.baseWaitMs)
+    })
+  }
+
+  private startWatchdog(): void {
+    if (this.watchdog) return
+    this.watchdog = setInterval(() => this.checkStuck(), this.watchdogIntervalMs)
+    ;(this.watchdog as any).unref?.()
+  }
+
+  /** Force one reconnect for connections non-connected > stuckAfterMs with no retry pending. */
+  checkStuck(now = Date.now()): void {
+    for (const [key, conn] of Array.from(this.connections)) {
+      if (conn.closing || conn.status === 'connected' || conn.reconnectTimer) continue
+      if (!conn.disconnectedAt || now - conn.disconnectedAt <= this.stuckAfterMs) continue
+      this.onStuck?.(conn, { disconnectedForMs: now - conn.disconnectedAt })
+      this.reconnectNow(key, conn)
+    }
   }
 
   /**
@@ -310,6 +375,8 @@ export class ConnectionPool {
       throw new Error(`no connection to ${host}`)
     }
 
+    conn.closing = true
+    if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null }
     // Bug #1: disable auto_reconnect before quitting to prevent zombie reconnects
     try {
       conn.client.options.auto_reconnect = false

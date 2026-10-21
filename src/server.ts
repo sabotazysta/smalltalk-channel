@@ -778,6 +778,13 @@ pool.onPreRegRaw = (conn, line) => {
   logConnEvent(`RAW nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} line=${JSON.stringify(line)}`)
 }
 
+pool.onStuck = (conn, event) => {
+  logConnEvent(
+    `STUCK_DISCONNECTED nick=${conn.config.nick} host=${conn.config.host}:${conn.config.port} ` +
+    `disconnectedFor=${Math.round(event.disconnectedForMs / 1000)}s status=${conn.status} -- forcing reconnect`
+  )
+}
+
 pool.onReconnecting = (conn, event) => {
   process.stderr.write(
     `smalltalk: [${normalizeHost(conn.config.host)}] reconnecting (attempt ${event.attempt}, wait ${Math.round(event.wait / 1000)}s)\n`
