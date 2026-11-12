@@ -134,6 +134,7 @@ The plugin reads config from `~/.claude/channels/smalltalk/.env` or environment 
 | `IRC_CHANNELS` | `#general` | Comma-separated list of channels to join |
 | `IRC_TLS` | `false` | Enable TLS (`true`/`false`) |
 | `IRC_GATE_CHANNEL` | `#urgent` | High-priority coordination channel |
+| `IRC_TYPING` | `true` | Send IRCv3 `+typing` TAGMSG as a DM receipt: `active` when a DM reaches the agent, `done` on reply, `paused` after 60 s without one. Needs the `message-tags` cap. |
 
 For external or cross-host connections, use port `6697` with `IRC_TLS=true`.
 

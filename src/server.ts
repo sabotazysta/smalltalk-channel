@@ -27,6 +27,7 @@ import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
 import { verifyMessage, signMessage, preloadIdentityKey, type VerificationResult } from './verify.js'
 import { parseWhoisChannels, unionChannels } from './channels.js'
+import { TypingTracker } from './typing.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -132,6 +133,8 @@ const IRC_CHANNELS_RAW = process.env.IRC_CHANNELS ?? '#general'
 const IRC_CHANNELS: string[] = IRC_CHANNELS_RAW.split(',').map((c: string) => c.trim()).filter(Boolean)
 const GATE_CHANNEL = (process.env.IRC_GATE_CHANNEL ?? '#urgent').toLowerCase()
 const IRC_SKILLS   = process.env.IRC_SKILLS?.trim() || undefined
+// IRCv3 `+typing` TAGMSG as a delivery receipt for DMs (see typing.ts). Default ON.
+const IRC_TYPING   = (process.env.IRC_TYPING   ?? 'true').toLowerCase() === 'true'
 
 // ---------------------------------------------------------------------------
 // Message chunking for signed messages
@@ -250,6 +253,7 @@ type ConnState = {
   batchIdToChannel: Map<string, string>
   pendingTopics: Map<string, PendingTopic>
   channelThrottle: Map<string, ThrottleEntry>
+  typing: TypingTracker
 }
 
 const connStates = new Map<string, ConnState>()
@@ -280,6 +284,7 @@ function getState(host: string, port: number): ConnState {
       batchIdToChannel: new Map(),
       pendingTopics: new Map(),
       channelThrottle: new Map(),
+      typing: new TypingTracker({ enabled: IRC_TYPING }),
     }
     connStates.set(key, s)
   }
@@ -464,6 +469,8 @@ async function handleMessage(conn: Connection, event: {
       mention: false,
       source,
     })
+    // Receipt signal: show "typing…" to the sender, like the Telegram plugin does.
+    st.typing.onDmReceived(conn.client, myNick, event.nick)
     return
   }
 
@@ -1058,6 +1065,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!channel || !text) throw new Error('channel and text are required')
         const conn = pool.resolve(args.server as string | undefined)
+        getState(conn.config.host, conn.config.port).typing.onReplySent(conn.client, channel)
         // Sign each chunk individually. We split on newlines AND on byte length
         // (SIGNED_BODY_MAX_BYTES) so the body always fits inside the IRC 512-byte
         // line limit after the server prepends the sender prefix — otherwise the
@@ -1077,6 +1085,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const text = args.text as string
         if (!nick || !text) throw new Error('nick and text are required')
         const conn = pool.resolve(args.server as string | undefined)
+        getState(conn.config.host, conn.config.port).typing.onReplySent(conn.client, nick)
         // Sign each chunk individually — same reason as 'send' above (byte-bounded
         // so the relayed line stays under the IRC 512-byte limit and verifies).
         for (const rawLine of text.split(/\r\n|\n|\r/).filter(l => l.length > 0)) {
