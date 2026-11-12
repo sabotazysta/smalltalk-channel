@@ -2,7 +2,7 @@
 // Run: bun test src/tests/typing.test.ts
 
 import { test, expect, describe } from 'bun:test'
-import { TypingTracker, isServiceNick, type TypingClient } from '../typing'
+import { TypingTracker, isServiceNick, defaultShouldAck, type TypingClient } from '../typing'
 
 function fakeClient(caps: string[] = ['message-tags']) {
   const sent: Array<[string, Record<string, string>]> = []
@@ -44,7 +44,7 @@ describe('TypingTracker', () => {
     expect(sent).toEqual([])
   })
 
-  test('timeout -> paused once; later reply still sends done', async () => {
+  test('timeout -> paused once, entry deleted; a late reply sends nothing', async () => {
     const { client, sent } = fakeClient()
     const t = new TypingTracker({ enabled: true, pausedAfterMs: 20 })
     t.onDmReceived(client, 'pony', 'jedrzej')
@@ -53,13 +53,70 @@ describe('TypingTracker', () => {
       ['jedrzej', { '+typing': 'active' }],
       ['jedrzej', { '+typing': 'paused' }],
     ])
+    expect(t.pendingCount()).toBe(0)
     t.onReplySent(client, 'jedrzej')
-    expect(sent[2]).toEqual(['jedrzej', { '+typing': 'done' }])
+    expect(sent.length).toBe(2)
+  })
+
+  test('rate limit: burst of DMs -> one active, timer still resets', async () => {
+    const { client, sent } = fakeClient()
+    const t = new TypingTracker({ enabled: true, pausedAfterMs: 40 })
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    expect(sent.map(s => s[1]['+typing'])).toEqual(['active'])
+    await sleep(25)
+    t.onDmReceived(client, 'pony', 'jedrzej') // <2 s: skipped, but resets the 40 ms timer
+    await sleep(25)
+    expect(sent.map(s => s[1]['+typing'])).toEqual(['active'])
+    await sleep(30)
+    expect(sent.map(s => s[1]['+typing'])).toEqual(['active', 'paused'])
+  })
+
+  test('rate limit: active again once the interval has passed', async () => {
+    const { client, sent } = fakeClient()
+    const t = new TypingTracker({ enabled: true, activeMinIntervalMs: 20 })
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    await sleep(30)
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    expect(sent.map(s => s[1]['+typing'])).toEqual(['active', 'active'])
+    t.onReplySent(client, 'jedrzej')
+  })
+
+  test('rate limit is per nick', () => {
+    const { client, sent } = fakeClient()
+    const t = new TypingTracker({ enabled: true })
+    t.onDmReceived(client, 'pony', 'jedrzej')
+    t.onDmReceived(client, 'pony', 'bandit')
+    expect(sent.map(s => s[0])).toEqual(['jedrzej', 'bandit'])
+    t.onReplySent(client, 'jedrzej')
+    t.onReplySent(client, 'bandit')
+  })
+
+  test('shouldAck override is the first check and replaces the defaults', () => {
+    const { client, sent } = fakeClient()
+    const asked: string[] = []
+    const t = new TypingTracker({
+      enabled: true,
+      shouldAck: (nick) => { asked.push(nick); return nick === 'NickServ' },
+    })
+    t.onDmReceived(client, 'pony', 'jedrzej')  // rejected by the override
+    t.onDmReceived(client, 'pony', 'NickServ') // allowed by the override
+    expect(asked).toEqual(['jedrzej', 'NickServ'])
+    expect(sent).toEqual([['NickServ', { '+typing': 'active' }]])
+    t.onReplySent(client, 'NickServ')
+  })
+
+  test('throwing shouldAck -> nothing, no throw', () => {
+    const { client, sent } = fakeClient()
+    const t = new TypingTracker({ enabled: true, shouldAck: () => { throw new Error('boom') } })
+    expect(() => t.onDmReceived(client, 'pony', 'jedrzej')).not.toThrow()
+    expect(sent).toEqual([])
   })
 
   test('a new DM resets the paused timer', async () => {
     const { client, sent } = fakeClient()
-    const t = new TypingTracker({ enabled: true, pausedAfterMs: 40 })
+    const t = new TypingTracker({ enabled: true, pausedAfterMs: 40, activeMinIntervalMs: 10 })
     t.onDmReceived(client, 'pony', 'jedrzej')
     await sleep(25)
     t.onDmReceived(client, 'pony', 'jedrzej')
@@ -122,5 +179,14 @@ describe('isServiceNick', () => {
     expect(isServiceNick('irc.example.com')).toBe(true)
     expect(isServiceNick('')).toBe(true)
     expect(isServiceNick('bandit')).toBe(false)
+  })
+})
+
+describe('defaultShouldAck', () => {
+  test('rejects self (case-insensitive), services, server names; accepts people', () => {
+    expect(defaultShouldAck('Pony', 'pony')).toBe(false)
+    expect(defaultShouldAck('NickServ', 'pony')).toBe(false)
+    expect(defaultShouldAck('irc.hanza.local', 'pony')).toBe(false)
+    expect(defaultShouldAck('jedrzej', 'pony')).toBe(true)
   })
 })

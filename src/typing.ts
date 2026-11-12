@@ -27,12 +27,31 @@ export function isServiceNick(nick: string): boolean {
   return !nick || nick.includes('.') || SERVICE_NICKS.has(nick.toLowerCase())
 }
 
-export class TypingTracker {
-  // Targets (lowercased nick) we've sent `active` to and not yet `done`.
-  // timer === null means `paused` was already sent; still awaiting `done` on reply.
-  private pending = new Map<string, { client: TypingClient; target: string; timer: ReturnType<typeof setTimeout> | null }>()
+// Default ack policy: never to ourselves, services or server names. A future allowlist
+// belongs here too — it runs as the FIRST check in onDmReceived.
+export function defaultShouldAck(nick: string, myNick: string): boolean {
+  return !isServiceNick(nick) && nick.toLowerCase() !== myNick.toLowerCase()
+}
 
-  constructor(private opts: { enabled: boolean; pausedAfterMs?: number }) {}
+export class TypingTracker {
+  // Targets (lowercased nick) we've sent `active` to and not yet `done`/`paused`.
+  private pending = new Map<string, {
+    client: TypingClient
+    target: string
+    timer: ReturnType<typeof setTimeout>
+    lastActiveAt: number
+  }>()
+
+  private shouldAck: (nick: string, myNick: string) => boolean
+
+  constructor(private opts: {
+    enabled: boolean
+    pausedAfterMs?: number      // default 60 s
+    activeMinIntervalMs?: number // default 2 s: at most one `active` per nick per interval
+    shouldAck?: (nick: string, myNick: string) => boolean
+  }) {
+    this.shouldAck = opts.shouldAck ?? defaultShouldAck
+  }
 
   private send(client: TypingClient, target: string, state: TypingState): void {
     try {
@@ -46,18 +65,29 @@ export class TypingTracker {
   /** A DM from `nick` was just forwarded to the session. */
   onDmReceived(client: TypingClient, myNick: string, nick: string): void {
     if (!this.opts.enabled) return
-    if (isServiceNick(nick) || nick.toLowerCase() === myNick.toLowerCase()) return
+    try {
+      if (!this.shouldAck(nick, myNick)) return
+    } catch {
+      return
+    }
     const key = nick.toLowerCase()
+    const now = Date.now()
     const prev = this.pending.get(key)
-    if (prev?.timer) clearTimeout(prev.timer)
-    this.send(client, nick, 'active')
+    if (prev) clearTimeout(prev.timer)
+    // Rate limit: a burst of DMs must not echo one TAGMSG each — but the timer still resets.
+    let lastActiveAt = prev?.lastActiveAt ?? 0
+    if (!prev || now - prev.lastActiveAt >= (this.opts.activeMinIntervalMs ?? 2_000)) {
+      this.send(client, nick, 'active')
+      lastActiveAt = now
+    }
     const timer = setTimeout(() => {
       const entry = this.pending.get(key)
       if (!entry || entry.timer !== timer) return
-      entry.timer = null
+      this.pending.delete(key)
       this.send(entry.client, entry.target, 'paused')
     }, this.opts.pausedAfterMs ?? 60_000)
-    this.pending.set(key, { client, target: nick, timer })
+    timer.unref?.()  // never keep the process alive just for a pending `paused`
+    this.pending.set(key, { client, target: nick, timer, lastActiveAt })
   }
 
   /** The agent is about to send a message to `target` — call BEFORE the PRIVMSG. */
@@ -65,8 +95,13 @@ export class TypingTracker {
     const key = target.toLowerCase()
     const entry = this.pending.get(key)
     if (!entry) return
-    if (entry.timer) clearTimeout(entry.timer)
+    clearTimeout(entry.timer)
     this.pending.delete(key)
     this.send(client, target, 'done')
+  }
+
+  /** Test hook: number of nicks awaiting done/paused. */
+  pendingCount(): number {
+    return this.pending.size
   }
 }
