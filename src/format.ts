@@ -5,10 +5,14 @@
 
 export type HistoryMessage = { ts: string; nick: string; text: string; msgid?: string }
 
-export function getEventTs(time: Date | string | null | undefined): string {
-  if (!time) return new Date().toISOString()
+// irc-framework's Command.getServerTime() returns epoch MILLISECONDS (a number), not a Date or
+// string. Before 2026-11-15 a number fell through to "now", so every live event looked fresh
+// (the O13 stale-replay check could never fire) and history lines carried the fetch time.
+export function getEventTs(time: Date | string | number | null | undefined): string {
+  if (time === null || time === undefined || time === '') return new Date().toISOString()
   if (time instanceof Date) return time.toISOString()
   if (typeof time === 'string') return time
+  if (typeof time === 'number' && Number.isFinite(time)) return new Date(time).toISOString()
   return new Date().toISOString()
 }
 

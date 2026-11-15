@@ -62,3 +62,12 @@ describe('formatHistoryMessage', () => {
     )
   })
 })
+
+describe('getEventTs with irc-framework epoch ms', () => {
+  test('number (what getServerTime returns) is the server time, not now', () => {
+    expect(getEventTs(Date.parse('2026-08-10T12:00:00.000Z'))).toBe('2026-08-10T12:00:00.000Z')
+  })
+  test('NaN falls back to now instead of throwing', () => {
+    expect(() => getEventTs(NaN)).not.toThrow()
+  })
+})
