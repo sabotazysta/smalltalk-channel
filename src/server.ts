@@ -232,8 +232,10 @@ type PendingNames = {
 }
 
 import { getEventTs, formatHistoryMessage, type HistoryMessage } from './format'
+import { NESTED_MULTILINE_TAG, appendMultilinePiece } from './multiline'
 type PendingHistory = {
   batchId: string | null
+  lastMultilineId?: string
   messages: HistoryMessage[]
   resolve: (msgs: HistoryMessage[]) => void
   reject: (err: Error) => void
@@ -396,10 +398,19 @@ async function handleMessage(conn: Connection, event: {
     if (batchChannel) {
       const pending = st.pendingHistory.get(batchChannel)
       if (pending) {
-        pending.messages.push({
-          ts: getEventTs(event.time), nick: event.nick, text: event.message,
-          msgid: event.tags?.msgid,
-        })
+        // A draft/multiline message replayed inside the history batch arrives as one line per
+        // PRIVMSG, marked with its inner batch id (see multiline.ts) — join it back into one entry.
+        const mlId = event.tags?.[NESTED_MULTILINE_TAG]
+        const last = pending.messages[pending.messages.length - 1]
+        if (mlId && last && pending.lastMultilineId === mlId) {
+          last.text = appendMultilinePiece(last.text, event.message, event.tags)
+        } else {
+          pending.messages.push({
+            ts: getEventTs(event.time), nick: event.nick, text: event.message,
+            msgid: event.tags?.msgid,
+          })
+          pending.lastMultilineId = mlId
+        }
       }
     }
     // CHATHISTORY is historical by definition — NEVER surface it as a live notification, whether or

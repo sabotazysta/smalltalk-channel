@@ -10,6 +10,7 @@
 
 import IRC from 'irc-framework'
 import wsTransport from 'irc-framework/src/transports/websocket.js'
+import { attachMultiline } from './multiline'
 
 export interface ConnectionConfig {
   host: string
@@ -100,7 +101,9 @@ export class ConnectionPool {
 
     // Request IRCv3 capabilities needed for CHATHISTORY and batched responses
     // Request both draft/ and non-draft variants for compatibility across IRC servers
-    client.requestCap(['batch', 'draft/batch', 'draft/chathistory', 'server-time', 'draft/server-time', 'message-tags'])
+    // draft/multiline: without it ergo splits a multiline batch into separate PRIVMSGs (one long
+    // paragraph = 2+ notifications cut mid-word). See multiline.ts.
+    client.requestCap(['batch', 'draft/batch', 'draft/chathistory', 'server-time', 'draft/server-time', 'message-tags', 'draft/multiline'])
 
     const conn: Connection = {
       config,
@@ -122,6 +125,10 @@ export class ConnectionPool {
         this.onPreRegRaw?.(conn, event.line)
       }
     })
+
+    // Joins draft/multiline batches into one onMessage call (must be attached before connecting:
+    // it installs a raw middleware).
+    const multiline = attachMultiline(client, (event) => this.onMessage?.(conn, event))
 
     // Wire up event forwarding before connecting
     client.on('registered', () => {
@@ -180,7 +187,7 @@ export class ConnectionPool {
       tags?: Record<string, string>
       batch?: { id: string; type: string; params: string[] }
     }) => {
-      this.onMessage?.(conn, event)
+      if (!multiline.offer(event)) this.onMessage?.(conn, event)
     })
 
     client.on('batch start chathistory', (event: { id: string; type: string; params: string[] }) => {
@@ -229,6 +236,7 @@ export class ConnectionPool {
     })
 
     client.on('socket close', () => {
+      multiline.reset()
       conn.status = 'disconnected'
       conn.channels.clear()
       this.onSocketClose?.(conn)
