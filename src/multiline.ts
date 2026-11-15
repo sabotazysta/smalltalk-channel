@@ -19,7 +19,8 @@
  *    event; the middleware copies missing ones onto the batch's PRIVMSG lines.
  *  - A lost `BATCH -<id>` would leave the lines in irc-framework's cache forever. A timer per
  *    top-level multiline batch dispatches a synthetic `BATCH -<id>` so whatever arrived is
- *    delivered; the same happens on socket close.
+ *    delivered; the same happens on socket close. Such a forced flush ends with TRUNCATED_MARKER so
+ *    the agent doesn't take half a paragraph for the whole message.
  */
 
 export const MULTILINE_BATCH = 'draft/multiline'
@@ -29,6 +30,8 @@ export const NESTED_MULTILINE_TAG = 'smalltalk/multiline-batch'
 /** Per-batch cap on the joined text. ergo's max-bytes is 4096; 64 KB is generous. */
 export const MULTILINE_MAX_BYTES = 64 * 1024
 export const MULTILINE_TIMEOUT_MS = 10_000
+/** Appended to a batch delivered without its real `BATCH -` (timeout / socket close). */
+export const TRUNCATED_MARKER = '\n[ucięte: reszta wiadomości nie dotarła]'
 
 export type MsgEvent = {
   target: string
@@ -75,6 +78,7 @@ export function attachMultiline(
   const batchTags = new Map<string, Record<string, string>>()        // any multiline batch id -> tags
   const nested = new Map<string, string>()                           // inner id -> outer id
   const open = new Map<string, { first: MsgEvent; text: string; bytes: number }>()
+  let forcing: string | null = null   // id whose synthetic BATCH - is being dispatched right now
 
   const forceEnd = (id: string, why: string) => {
     const t = timers.get(id)
@@ -82,7 +86,12 @@ export function attachMultiline(
     timers.delete(id)
     if (!client.command_handler.hasCache('batch.' + id)) return
     process.stderr.write(`smalltalk: multiline batch ${id} not closed (${why}) — delivering what arrived\n`)
-    client.command_handler.dispatch({ command: 'BATCH', params: ['-' + id], tags: {} })
+    forcing = id
+    try {
+      client.command_handler.dispatch({ command: 'BATCH', params: ['-' + id], tags: {} })
+    } finally {
+      forcing = null
+    }
   }
 
   client.use((_c, raw) => {
@@ -117,14 +126,14 @@ export function attachMultiline(
     })
   })
 
-  const flush = (id: string) => {
+  const flush = (id: string, truncated = false) => {
     const b = open.get(id)
     if (!b) return
     open.delete(id)
-    deliver({ ...b.first, message: b.text })
+    deliver({ ...b.first, message: truncated ? b.text + TRUNCATED_MARKER : b.text })
   }
 
-  client.on('batch end ' + MULTILINE_BATCH, (ev: { id: string }) => flush(ev.id))
+  client.on('batch end ' + MULTILINE_BATCH, (ev: { id: string }) => flush(ev.id, ev.id === forcing))
 
   return {
     /** Returns true if the event belongs to a multiline batch and was consumed. */
@@ -149,7 +158,7 @@ export function attachMultiline(
     /** Socket gone: deliver anything still buffered, then drop all state. */
     reset() {
       for (const id of [...timers.keys()]) forceEnd(id, 'socket closed')
-      for (const id of [...open.keys()]) flush(id)
+      for (const id of [...open.keys()]) flush(id, true)
       nested.clear()
       batchTags.clear()
     },

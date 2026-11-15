@@ -9,7 +9,7 @@
 
 import { test, expect, describe } from 'bun:test'
 import IRC from 'irc-framework'
-import { attachMultiline, appendMultilinePiece, NESTED_MULTILINE_TAG, type MsgEvent } from '../multiline'
+import { attachMultiline, appendMultilinePiece, NESTED_MULTILINE_TAG, TRUNCATED_MARKER, type MsgEvent } from '../multiline'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -122,7 +122,7 @@ describe('draft/multiline batches', () => {
     )
     expect(delivered.length).toBe(0)
     await sleep(120)
-    expect(delivered.map(e => e.message)).toEqual(['pierwsza czesc'])
+    expect(delivered.map(e => e.message)).toEqual(['pierwsza czesc' + TRUNCATED_MARKER])
     expect(client.command_handler.hasCache('batch.lost')).toBe(false)
     // A late BATCH end is ignored by irc-framework (no cache) -> no duplicate
     feed('BATCH -lost')
@@ -144,7 +144,63 @@ describe('draft/multiline batches', () => {
     const { delivered, feed, ml } = setup()
     feed('BATCH +sc draft/multiline #general', '@batch=sc :a!u@h PRIVMSG #general :zostalo')
     ml.reset()
-    expect(delivered.map(e => e.message)).toEqual(['zostalo'])
+    expect(delivered.map(e => e.message)).toEqual(['zostalo' + TRUNCATED_MARKER])
+  })
+
+  test('truncation marker: on its own trailing line, only on forced flush', async () => {
+    expect(TRUNCATED_MARKER).toBe('\n[ucięte: reszta wiadomości nie dotarła]')
+    const { delivered, feed } = setup({ timeoutMs: 50 })
+    feed('BATCH +ok draft/multiline #general', '@batch=ok :a!u@h PRIVMSG #general :caly', 'BATCH -ok')
+    feed('BATCH +to draft/multiline #general', '@batch=to :a!u@h PRIVMSG #general :pol')
+    await sleep(120)
+    expect(delivered.map(e => e.message)).toEqual(['caly', 'pol\n[ucięte: reszta wiadomości nie dotarła]'])
+    // size-cap split is not a truncation: every part arrived
+    const big = setup({ maxBytes: 3 })
+    big.feed(
+      'BATCH +b draft/multiline #general',
+      '@batch=b :a!u@h PRIVMSG #general :abc',
+      '@batch=b;draft/multiline-concat :a!u@h PRIVMSG #general :d',
+      'BATCH -b',
+    )
+    expect(big.delivered.map(e => e.message)).toEqual(['abc', 'd'])
+  })
+
+  test('interleaved batches (two senders, same sender to two targets) stay separate', () => {
+    const { delivered, feed } = setup()
+    feed(
+      'BATCH +A draft/multiline #general',
+      'BATCH +B draft/multiline #general',
+      'BATCH +C draft/multiline pony',
+      '@batch=A :alice!u@h PRIVMSG #general :alice 1',
+      '@batch=B :bob!u@h PRIVMSG #general :bob 1',
+      '@batch=C :alice!u@h PRIVMSG pony :dm 1',
+      '@batch=A;draft/multiline-concat :alice!u@h PRIVMSG #general : cd',
+      '@batch=B :bob!u@h PRIVMSG #general :bob 2',
+      '@batch=C :alice!u@h PRIVMSG pony :dm 2',
+      'BATCH -B',
+      '@batch=A :alice!u@h PRIVMSG #general :alice 2',
+      'BATCH -C',
+      'BATCH -A',
+    )
+    expect(delivered.map(e => [e.nick, e.target, e.message])).toEqual([
+      ['bob', '#general', 'bob 1\nbob 2'],
+      ['alice', 'pony', 'dm 1\ndm 2'],
+      ['alice', '#general', 'alice 1 cd\nalice 2'],
+    ])
+  })
+
+  test('no draft/multiline cap: plain PRIVMSGs pass through one by one, immediately', async () => {
+    // Server without the cap (or that did not ACK it) splits a paragraph into separate PRIVMSGs
+    // with no batch tags: each one must be delivered as-is, synchronously, nothing buffered.
+    const { delivered, feed, client } = setup({ timeoutMs: 50 })
+    expect(client.network.cap.isEnabled('draft/multiline')).toBe(false)
+    feed(':jedrzej!u@h PRIVMSG #general :Plików samej ')
+    expect(delivered.map(e => e.message)).toEqual(['Plików samej '])
+    feed(':jedrzej!u@h PRIVMSG #general :gry nie bierzmy', ':jedrzej!u@h PRIVMSG pony :dm')
+    expect(delivered.map(e => e.message)).toEqual(['Plików samej ', 'gry nie bierzmy', 'dm'])
+    expect(delivered.every(e => e.batch === undefined)).toBe(true)
+    await sleep(120)
+    expect(delivered.length).toBe(3)
   })
 
   test('size cap: over maxBytes splits instead of buffering without bound', () => {
