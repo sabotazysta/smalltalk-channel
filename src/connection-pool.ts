@@ -103,7 +103,9 @@ export class ConnectionPool {
     // Request both draft/ and non-draft variants for compatibility across IRC servers
     // draft/multiline: without it ergo splits a multiline batch into separate PRIVMSGs (one long
     // paragraph = 2+ notifications cut mid-word). See multiline.ts.
-    client.requestCap(['batch', 'draft/batch', 'draft/chathistory', 'server-time', 'draft/server-time', 'message-tags', 'draft/multiline'])
+    // account-tag: ergo attaches the sender's SASL account to every message (server tag, clients
+    // cannot set it) — used for [verified-operator] on unsigned human messages (verify.ts).
+    client.requestCap(['batch', 'draft/batch', 'draft/chathistory', 'server-time', 'draft/server-time', 'message-tags', 'draft/multiline', 'account-tag'])
 
     const conn: Connection = {
       config,

@@ -25,8 +25,11 @@ export interface VerificationResult {
 const KEYRING_URL = process.env.HANZA_KEYRING_URL ?? 'http://hanza-keyring:8080'
 const KEYRING_TIMEOUT_MS = parseInt(process.env.HANZA_KEYRING_TIMEOUT_MS ?? '3000', 10)
 
-// In-memory pubkey cache: kid → pubkey Buffer (avoid repeated keyring lookups)
-const pubkeyCache = new Map<string, Buffer>()
+// In-memory keyring cache: kid → { pubkey, nick, status } (avoid repeated keyring lookups).
+// The owner nick and status are cached together with the key because verification is only
+// meaningful when the key BELONGS to the sender (see verifyMessage).
+interface KeyringEntry { pubkey: Buffer; nick: string; status: string }
+const pubkeyCache = new Map<string, KeyringEntry>()
 
 /**
  * Parse IRCv3 message tags from a raw IRC line.
@@ -83,7 +86,7 @@ export function buildCanonicalBytes(
  * Returns null if not found (404) or error.
  * Key is cached in memory.
  */
-async function fetchPublicKey(kid: string): Promise<Buffer | null> {
+async function fetchPublicKey(kid: string): Promise<KeyringEntry | null> {
   if (pubkeyCache.has(kid)) return pubkeyCache.get(kid)!
 
   try {
@@ -98,8 +101,10 @@ async function fetchPublicKey(kid: string): Promise<Buffer | null> {
     if (resp.status === 404) return null
     if (!resp.ok) throw new Error(`keyring HTTP ${resp.status}`)
 
-    const data = await resp.json() as { pubkey?: string }
+    const data = await resp.json() as { pubkey?: string; nick?: string; status?: string }
     if (!data.pubkey) return null
+    // No owner nick = we cannot bind the key to a sender = treat as not found (fail closed).
+    if (typeof data.nick !== 'string' || data.nick === '') return null
 
     // pubkey is "ssh-ed25519 AAAA..." or just the base64 key material
     // The keyring stores it as the full ssh public key string
@@ -122,8 +127,14 @@ async function fetchPublicKey(kid: string): Promise<Buffer | null> {
       keyMaterial = Buffer.from(pubkeyStr, 'base64')
     }
 
-    pubkeyCache.set(kid, keyMaterial)
-    return keyMaterial
+    const entry: KeyringEntry = {
+      pubkey: keyMaterial,
+      nick: data.nick,
+      // keyring defaults status to "active"; a missing field is read the same way
+      status: typeof data.status === 'string' ? data.status : 'active',
+    }
+    pubkeyCache.set(kid, entry)
+    return entry
   } catch {
     // Cache miss errors are non-fatal — return null
     return null
@@ -157,10 +168,19 @@ export async function verifyMessage(
 
   try {
     // Fetch public key for this kid
-    const pubkey = await fetchPublicKey(kid)
-    if (pubkey === null) {
+    const entry = await fetchPublicKey(kid)
+    if (entry === null) {
       return { status: 'stranger', kid, error: 'kid not found in keyring' }
     }
+    // Bind the key to the sender: a valid signature made with SOMEONE ELSE's enrolled key must not
+    // yield [verified] under this nick (before 2026-11-17 any enrolled key verified under any nick).
+    if (!sameIrcName(entry.nick, sender)) {
+      return { status: 'verification_failed', kid, nick: entry.nick, error: `key belongs to ${entry.nick}, not ${sender}` }
+    }
+    if (entry.status !== 'active') {
+      return { status: 'verification_failed', kid, nick: entry.nick, error: `key status ${entry.status}` }
+    }
+    const pubkey = entry.pubkey
 
     // Build canonical bytes
     const canonical = buildCanonicalBytes(version, tsMs, sender, target, body)
@@ -178,7 +198,7 @@ export async function verifyMessage(
     const valid = crypto.verify(null, canonical, keyObj, sigBuf)
 
     if (valid) {
-      return { status: 'verified', kid }
+      return { status: 'verified', kid, nick: entry.nick }
     } else {
       return { status: 'verification_failed', kid, error: 'signature mismatch' }
     }
@@ -189,6 +209,59 @@ export async function verifyMessage(
       error: err instanceof Error ? err.message : String(err),
     }
   }
+}
+
+// ============================================================
+// OPERATOR ATTESTATION — humans (Talk / panel) do not sign; trust the ergo account instead
+// ============================================================
+
+// Plain ASCII IRC name. Restricting to ASCII before case-folding matters: JS toLowerCase() maps
+// some non-ASCII code points onto ASCII (U+212A KELVIN SIGN -> "k"), which would let a look-alike
+// name fold onto an allowlisted one.
+const ASCII_IRC_NAME = /^[A-Za-z0-9_\-\[\]\\`^{}|]+$/
+
+/** Case-insensitive equality of two IRC names, ASCII only (anything else never matches). */
+export function sameIrcName(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b || !ASCII_IRC_NAME.test(a) || !ASCII_IRC_NAME.test(b)) return false
+  return a.toLowerCase() === b.toLowerCase()
+}
+
+/**
+ * Parse the human-operator allowlist (comma/space separated account names).
+ * Empty/unset = empty set = nobody gets [verified-operator] (fail closed). Non-ASCII entries are
+ * dropped (they could never match, see sameIrcName).
+ */
+export function parseOperatorAccounts(raw: string | undefined): Set<string> {
+  const out = new Set<string>()
+  for (const part of (raw ?? '').split(/[\s,]+/)) {
+    if (part && ASCII_IRC_NAME.test(part)) out.add(part.toLowerCase())
+  }
+  return out
+}
+
+/**
+ * True when the message is server-attested as coming from an allowlisted human operator:
+ * the `account` tag (set by ergo after SASL, requires the `account-tag` cap) equals the sender
+ * nick and that account is on the allowlist.
+ *
+ * Why the tag is trustworthy: `account` has no `+` prefix, so it is a SERVER tag — ergo only
+ * relays client-only (`+`) tags from clients and drops anything else a client tries to send.
+ * Never read `+account` or any client tag here.
+ *
+ * Call this ONLY for messages without hanza signature tags (status `unverified`); a message that
+ * carries a bad signature stays [⚠️unverified] regardless of its account.
+ */
+export function isVerifiedOperator(
+  tags: Record<string, string> | undefined,
+  sender: string,
+  operators: Set<string>,
+): boolean {
+  if (operators.size === 0 || !tags) return false
+  if (!Object.prototype.hasOwnProperty.call(tags, 'account')) return false
+  const account = tags['account']
+  if (typeof account !== 'string' || account === '' || account === '*') return false
+  if (!sameIrcName(account, sender)) return false
+  return operators.has(account.toLowerCase())
 }
 
 // ============================================================
