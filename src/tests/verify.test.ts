@@ -109,6 +109,26 @@ describe('verifyMessage — key bound to sender nick', () => {
     expect(r.status).toBe('stranger')
   })
 
+  test('keyring network error -> keyring_unreachable, not stranger', async () => {
+    const k = makeKey('net-down')
+    const prev = globalThis.fetch
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed') }) as typeof fetch
+    try {
+      const r = await verifyMessage(signedTags(k, 'muffin', '#dev', 'hi'), 'muffin', '#dev', 'hi')
+      expect(r.status).toBe('keyring_unreachable')
+    } finally { globalThis.fetch = prev }
+  })
+
+  test('keyring 500 -> keyring_unreachable', async () => {
+    const k = makeKey('srv-500')
+    const prev = globalThis.fetch
+    globalThis.fetch = (async () => new Response('oops', { status: 500 })) as typeof fetch
+    try {
+      const r = await verifyMessage(signedTags(k, 'muffin', '#dev', 'hi'), 'muffin', '#dev', 'hi')
+      expect(r.status).toBe('keyring_unreachable')
+    } finally { globalThis.fetch = prev }
+  })
+
   test('no hanza tags -> unverified', async () => {
     const r = await verifyMessage(new Map([['account', 'jedrzej']]), 'jedrzej', 'bandit', 'hi')
     expect(r.status).toBe('unverified')
