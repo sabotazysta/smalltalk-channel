@@ -473,6 +473,7 @@ async function handleMessage(conn: Connection, event: {
   }
   const verifiedPrefix = verificationResult.status === 'verified' ? '[verified] '
     : verificationResult.status === 'stranger' ? '[stranger] '
+    : verificationResult.status === 'keyring_unreachable' ? '[keyring?] '
     : verificationResult.status === 'verification_failed' ? '[⚠️unverified] '
     // unsigned: server-attested human operator (ergo `account` tag == nick, on allowlist)
     : isVerifiedOperator(event.tags, event.nick, OPERATOR_ACCOUNTS) ? '[verified-operator] '

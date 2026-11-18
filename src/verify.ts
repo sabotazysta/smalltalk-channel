@@ -13,7 +13,10 @@
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 
-export type VerificationStatus = 'verified' | 'unverified' | 'verification_failed' | 'stranger'
+// keyring_unreachable: the signature could not be checked because the keyring did not answer
+// (network error, timeout, 5xx). Distinct from 'stranger' (keyring answered: kid unknown) — Pixel's
+// plugin on a PC outside the docker network showed every signed DM as [stranger] (2026-11-17).
+export type VerificationStatus = 'verified' | 'unverified' | 'verification_failed' | 'stranger' | 'keyring_unreachable'
 
 export interface VerificationResult {
   status: VerificationStatus
@@ -86,7 +89,9 @@ export function buildCanonicalBytes(
  * Returns null if not found (404) or error.
  * Key is cached in memory.
  */
-async function fetchPublicKey(kid: string): Promise<KeyringEntry | null> {
+const UNREACHABLE = Symbol('keyring-unreachable')
+
+async function fetchPublicKey(kid: string): Promise<KeyringEntry | null | typeof UNREACHABLE> {
   if (pubkeyCache.has(kid)) return pubkeyCache.get(kid)!
 
   try {
@@ -136,8 +141,8 @@ async function fetchPublicKey(kid: string): Promise<KeyringEntry | null> {
     pubkeyCache.set(kid, entry)
     return entry
   } catch {
-    // Cache miss errors are non-fatal — return null
-    return null
+    // Network error / timeout / non-404 HTTP error: we do NOT know whether the kid exists.
+    return UNREACHABLE
   }
 }
 
@@ -169,6 +174,9 @@ export async function verifyMessage(
   try {
     // Fetch public key for this kid
     const entry = await fetchPublicKey(kid)
+    if (entry === UNREACHABLE) {
+      return { status: 'keyring_unreachable', kid, error: `keyring ${KEYRING_URL} did not answer` }
+    }
     if (entry === null) {
       return { status: 'stranger', kid, error: 'kid not found in keyring' }
     }
