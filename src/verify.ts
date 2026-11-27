@@ -240,6 +240,25 @@ export function parseOperatorAccounts(raw: string | undefined): Set<string> {
 }
 
 /**
+ * Human accounts used when HANZA_OPERATOR_ACCOUNTS is NOT set — and ONLY on the Hanza ergo
+ * (HANZA_IRC_HOST, where account self-registration is off). Mirror of Talk's ALLOWED_ACCOUNTS
+ * (hanza-chat-talk deploy/values.yaml: the only accounts that may log in to talk.hanza.dev, i.e.
+ * the humans). On any other server the same names mean nothing, so the default is empty there.
+ * Set the env to override (it then applies to every connection); set it to "" to disable.
+ */
+export const DEFAULT_OPERATOR_ACCOUNTS = 'jedrzej,gosia,Michal,michalf,balor'
+export const HANZA_IRC_HOST = 'hanza.smalltalk.chat'
+
+/**
+ * Allowlist for one connection. env set (even "") -> that value; unset -> the built-in default
+ * on the Hanza ergo only, nobody elsewhere (fail closed). `host` is the normalized host name.
+ */
+export function resolveOperatorAccounts(env: string | undefined, host: string): Set<string> {
+  if (env !== undefined) return parseOperatorAccounts(env)
+  return parseOperatorAccounts(host === HANZA_IRC_HOST ? DEFAULT_OPERATOR_ACCOUNTS : '')
+}
+
+/**
  * True when the message is server-attested as coming from an allowlisted human operator:
  * the `account` tag (set by ergo after SASL, requires the `account-tag` cap) equals the sender
  * nick and that account is on the allowlist.
@@ -262,6 +281,24 @@ export function isVerifiedOperator(
   if (typeof account !== 'string' || account === '' || account === '*') return false
   if (!sameIrcName(account, sender)) return false
   return operators.has(account.toLowerCase())
+}
+
+/**
+ * The label put at the very START of a notification. Inputs are the signature status and the
+ * server tags only — never the message body, so badge text typed into a body can not produce it.
+ */
+export function verificationPrefix(
+  status: VerificationStatus,
+  tags: Record<string, string> | undefined,
+  sender: string,
+  operators: Set<string>,
+): string {
+  return status === 'verified' ? '[verified] '
+    : status === 'stranger' ? '[stranger] '
+    : status === 'verification_failed' ? '[⚠️unverified] '
+    // unsigned: server-attested human operator (ergo `account` tag == nick, on allowlist)
+    : isVerifiedOperator(tags, sender, operators) ? '[verified-operator] '
+    : ''  // unverified = no prefix (pre-flag-day default, clean output)
 }
 
 // ============================================================
