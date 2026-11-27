@@ -240,16 +240,22 @@ export function parseOperatorAccounts(raw: string | undefined): Set<string> {
 }
 
 /**
- * Human accounts used when HANZA_OPERATOR_ACCOUNTS is NOT set. Mirror of Talk's ALLOWED_ACCOUNTS
+ * Human accounts used when HANZA_OPERATOR_ACCOUNTS is NOT set — and ONLY on the Hanza ergo
+ * (HANZA_IRC_HOST, where account self-registration is off). Mirror of Talk's ALLOWED_ACCOUNTS
  * (hanza-chat-talk deploy/values.yaml: the only accounts that may log in to talk.hanza.dev, i.e.
- * the humans). Built in so the badge works on every runtime (docker clone, k3s, minion image)
- * without per-runtime env. Set the env to override; set it to "" to disable the badge.
+ * the humans). On any other server the same names mean nothing, so the default is empty there.
+ * Set the env to override (it then applies to every connection); set it to "" to disable.
  */
 export const DEFAULT_OPERATOR_ACCOUNTS = 'jedrzej,gosia,Michal,michalf,balor'
+export const HANZA_IRC_HOST = 'hanza.smalltalk.chat'
 
-/** Allowlist from the env value: unset -> built-in default, anything else (even "") -> that. */
-export function resolveOperatorAccounts(env: string | undefined): Set<string> {
-  return parseOperatorAccounts(env === undefined ? DEFAULT_OPERATOR_ACCOUNTS : env)
+/**
+ * Allowlist for one connection. env set (even "") -> that value; unset -> the built-in default
+ * on the Hanza ergo only, nobody elsewhere (fail closed). `host` is the normalized host name.
+ */
+export function resolveOperatorAccounts(env: string | undefined, host: string): Set<string> {
+  if (env !== undefined) return parseOperatorAccounts(env)
+  return parseOperatorAccounts(host === HANZA_IRC_HOST ? DEFAULT_OPERATOR_ACCOUNTS : '')
 }
 
 /**

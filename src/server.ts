@@ -122,8 +122,17 @@ preloadIdentityKey()
 // Human operators whose messages get [verified-operator] when ergo attests their account (they do
 // not sign — Talk/panel only do SASL). Read ONCE at startup: process env (container) wins over
 // .env (the loader above never overrides an existing var). Unset = built-in Talk humans; "" = nobody.
-const OPERATOR_ACCOUNTS = resolveOperatorAccounts(process.env.HANZA_OPERATOR_ACCOUNTS)
-process.stderr.write(`smalltalk: operator allowlist: ${OPERATOR_ACCOUNTS.size ? [...OPERATOR_ACCOUNTS].join(',') : '(empty — no [verified-operator])'}\n`)
+const OPERATOR_ENV = process.env.HANZA_OPERATOR_ACCOUNTS
+const operatorsByHost = new Map<string, Set<string>>()
+function operatorsFor(host: string): Set<string> {
+  let s = operatorsByHost.get(host)
+  if (!s) {
+    s = resolveOperatorAccounts(OPERATOR_ENV, host)
+    operatorsByHost.set(host, s)
+    process.stderr.write(`smalltalk: operator allowlist for ${host}: ${s.size ? [...s].join(',') : '(empty — no [verified-operator])'}\n`)
+  }
+  return s
+}
 
 const REGISTRY_URL       = process.env.REGISTRY_URL       ?? 'https://smalltalk.chat/api/registry'
 const REGISTRY_SERVER_ID = process.env.REGISTRY_SERVER_ID  // e.g. "smalltalk-public"
@@ -471,7 +480,7 @@ async function handleMessage(conn: Connection, event: {
     const tagsMap = new Map(Object.entries(event.tags))
     verificationResult = await verifyMessage(tagsMap, event.nick, event.target, event.message)
   }
-  const verifiedPrefix = verificationPrefix(verificationResult.status, event.tags, event.nick, OPERATOR_ACCOUNTS)
+  const verifiedPrefix = verificationPrefix(verificationResult.status, event.tags, event.nick, operatorsFor(source))
 
   // TIER 1: Direct messages
   if (isDM) {
