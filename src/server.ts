@@ -25,7 +25,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync, chm
 import { homedir } from 'os'
 import { join } from 'path'
 import { ConnectionPool, type Connection } from './connection-pool.js'
-import { verifyMessage, signMessage, preloadIdentityKey, isVerifiedOperator, parseOperatorAccounts, type VerificationResult } from './verify.js'
+import { verifyMessage, signMessage, preloadIdentityKey, verificationPrefix, resolveOperatorAccounts, type VerificationResult } from './verify.js'
 import { parseWhoisChannels, unionChannels } from './channels.js'
 import { TypingTracker } from './typing.js'
 
@@ -121,8 +121,8 @@ preloadIdentityKey()
 
 // Human operators whose messages get [verified-operator] when ergo attests their account (they do
 // not sign — Talk/panel only do SASL). Read ONCE at startup: process env (container) wins over
-// .env (the loader above never overrides an existing var). Unset/empty = nobody (fail closed).
-const OPERATOR_ACCOUNTS = parseOperatorAccounts(process.env.HANZA_OPERATOR_ACCOUNTS)
+// .env (the loader above never overrides an existing var). Unset = built-in Talk humans; "" = nobody.
+const OPERATOR_ACCOUNTS = resolveOperatorAccounts(process.env.HANZA_OPERATOR_ACCOUNTS)
 process.stderr.write(`smalltalk: operator allowlist: ${OPERATOR_ACCOUNTS.size ? [...OPERATOR_ACCOUNTS].join(',') : '(empty — no [verified-operator])'}\n`)
 
 const REGISTRY_URL       = process.env.REGISTRY_URL       ?? 'https://smalltalk.chat/api/registry'
@@ -471,12 +471,7 @@ async function handleMessage(conn: Connection, event: {
     const tagsMap = new Map(Object.entries(event.tags))
     verificationResult = await verifyMessage(tagsMap, event.nick, event.target, event.message)
   }
-  const verifiedPrefix = verificationResult.status === 'verified' ? '[verified] '
-    : verificationResult.status === 'stranger' ? '[stranger] '
-    : verificationResult.status === 'verification_failed' ? '[⚠️unverified] '
-    // unsigned: server-attested human operator (ergo `account` tag == nick, on allowlist)
-    : isVerifiedOperator(event.tags, event.nick, OPERATOR_ACCOUNTS) ? '[verified-operator] '
-    : ''  // unverified = no prefix (pre-flag-day default, clean output)
+  const verifiedPrefix = verificationPrefix(verificationResult.status, event.tags, event.nick, OPERATOR_ACCOUNTS)
 
   // TIER 1: Direct messages
   if (isDM) {

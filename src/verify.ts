@@ -240,6 +240,19 @@ export function parseOperatorAccounts(raw: string | undefined): Set<string> {
 }
 
 /**
+ * Human accounts used when HANZA_OPERATOR_ACCOUNTS is NOT set. Mirror of Talk's ALLOWED_ACCOUNTS
+ * (hanza-chat-talk deploy/values.yaml: the only accounts that may log in to talk.hanza.dev, i.e.
+ * the humans). Built in so the badge works on every runtime (docker clone, k3s, minion image)
+ * without per-runtime env. Set the env to override; set it to "" to disable the badge.
+ */
+export const DEFAULT_OPERATOR_ACCOUNTS = 'jedrzej,gosia,Michal,michalf,balor'
+
+/** Allowlist from the env value: unset -> built-in default, anything else (even "") -> that. */
+export function resolveOperatorAccounts(env: string | undefined): Set<string> {
+  return parseOperatorAccounts(env === undefined ? DEFAULT_OPERATOR_ACCOUNTS : env)
+}
+
+/**
  * True when the message is server-attested as coming from an allowlisted human operator:
  * the `account` tag (set by ergo after SASL, requires the `account-tag` cap) equals the sender
  * nick and that account is on the allowlist.
@@ -262,6 +275,24 @@ export function isVerifiedOperator(
   if (typeof account !== 'string' || account === '' || account === '*') return false
   if (!sameIrcName(account, sender)) return false
   return operators.has(account.toLowerCase())
+}
+
+/**
+ * The label put at the very START of a notification. Inputs are the signature status and the
+ * server tags only — never the message body, so badge text typed into a body can not produce it.
+ */
+export function verificationPrefix(
+  status: VerificationStatus,
+  tags: Record<string, string> | undefined,
+  sender: string,
+  operators: Set<string>,
+): string {
+  return status === 'verified' ? '[verified] '
+    : status === 'stranger' ? '[stranger] '
+    : status === 'verification_failed' ? '[⚠️unverified] '
+    // unsigned: server-attested human operator (ergo `account` tag == nick, on allowlist)
+    : isVerifiedOperator(tags, sender, operators) ? '[verified-operator] '
+    : ''  // unverified = no prefix (pre-flag-day default, clean output)
 }
 
 // ============================================================
